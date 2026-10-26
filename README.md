@@ -18,14 +18,17 @@ functionality as possible.
 - [x] sleep state
 - [x] wifi
 - [x] internal disk
+- [x] rtc support
+- [x] efi boot loader install
 - [ ] graphics acceleration
 - [ ] lid switch
 - [ ] power off
 - [ ] cpu power states
 
 ### General TODO: 
- - create patch, remove debug logging from kernel module
- - cleanup dts 
+ - create patch instead of full module sources
+ - remove debug logging from kernel modules
+ - cleanup dts
 
 
 
