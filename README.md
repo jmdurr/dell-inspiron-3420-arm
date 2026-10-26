@@ -1,4 +1,4 @@
-## Dell Inpsiron 3420 Arm Linux Support
+## Dell Inspiron 3420 Arm Linux Support
 
 Tested with Fedora 46 rawhide kernel 7.3 live usb. The DTS still needs cleanup and
 I am still working through various support and returning as much kernel
@@ -7,7 +7,7 @@ functionality as possible.
 ### Steps:
 - Compile dtc
 - Add kernel params to boot
-- Patch kernel module to skip pcie phy initialization (currently build the module or kernel with included C file)
+- Patch kernel module to skip pcie phy initialization (currently build the modules or kernel with included C files)
 - Obtain wifi and adsp firmware from windows install
 
 ### Status:
@@ -29,6 +29,7 @@ functionality as possible.
  - create patch instead of full module sources
  - remove debug logging from kernel modules
  - cleanup dts
+ - write comprehensive setup guide
 
 
 
