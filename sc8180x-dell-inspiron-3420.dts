@@ -30,7 +30,7 @@
 
 / {
 	model = "Dell Inspiron 3420 - SC8180xp";
-	compatible = "qcom,sc8180x";
+	compatible = "dell,inspiron-3420-sc8180xp","qcom,sc8180x";
 
 	/* EFI: 0x80000000 + 0x1fba00000 = 0x27ba00000 (~7.9 GiB usable) */
 	memory@80000000 {
