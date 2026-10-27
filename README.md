@@ -5,9 +5,16 @@ I am still working through various support and returning as much kernel
 functionality as possible.
 
 ### Steps:
+- apply dtsmake.patch to linux kernel source tree 7.3
+
+or 
+
 - Compile dtc
-- Add kernel params to boot
 - Patch kernel module to skip pcie phy initialization (currently build the modules or kernel with included C files)
+
+then
+- Build kernel and setup boot config
+- Add kernel params to boot as defined in grub.cfg
 - Obtain wifi and adsp firmware from windows install
 
 ### Status:
@@ -24,6 +31,11 @@ functionality as possible.
 - [ ] lid switch
 - [ ] power off
 - [ ] cpu power states
+- [ ] Bluetooth
+- [ ] Audio
+- [ ] Camera
+- [ ] Microphone
+- [ ] Special keys
 
 ### General TODO: 
  - create patch instead of full module sources
