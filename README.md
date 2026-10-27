@@ -36,6 +36,7 @@ then
 - [ ] Camera
 - [ ] Microphone
 - [ ] Special keys
+- [ ] cpu freq scaling
 
 ### General TODO: 
  - create patch instead of full module sources
