@@ -8,14 +8,15 @@ Tested with Fedora 46 rawhide kernel 7.3 live usb and internal SSD installation.
 
 ### Steps:
 - git apply kernel.patch to kernel source root
-- build kernel
 
 or 
 
-- Compile dtc
+- copy dts to <kernel src>/arch/arm64/boot/dts/qcom/
 - Patch kernel module to skip pcie phy initialization (currently build the modules or kernel with included C files)
 
 then
+
+- enable SM8150 Graphics Clock Driver - see kernel-local
 - Build kernel and setup boot config
 - Add kernel params to boot as defined in grub.cfg
 - Obtain wifi and adsp firmware from windows install
