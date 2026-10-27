@@ -99,6 +99,7 @@
 		regulator-always-on;
 	};
 
+	
 	/* \_SB.LID0 (PNP0C0D); state read from GpioIo pin 0x79 (\_SB.GIO0.LIDR) */
 	gpio-keys {
 		compatible = "gpio-keys";
@@ -116,6 +117,18 @@
 		};
 	};
 };
+&cpu4_opp_table {
+    opp-3072000000 {
+	opp-hz = /bits/ 64 <3072000000>;
+	opp-peak-kBps = <8368000 51609600>;
+    };
+
+    opp-3148800000 {
+	opp-hz = /bits/ 64 <3148800000>;
+	opp-peak-kBps = <8368000 51609600>;
+    };
+};
+
 
 &spmi_bus {
 	  pmic@0 {
@@ -410,7 +423,7 @@ status = "okay";
 };
 
 &osm_l3 {
-status="disabled";
+status="okay";
 };
 
 
@@ -497,6 +510,7 @@ status="disabled";
 		   reg=<0x6000>;
 		   reg-names="rtc","alarm";
 		   interrupts=<0x0 0x61 0x1 IRQ_TYPE_NONE>;
+		   qcom,uefi-rtc-info;
 		   };
 	};
 };

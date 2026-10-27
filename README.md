@@ -33,13 +33,12 @@ then
 - [ ] graphics acceleration
 - [ ] lid switch
 - [ ] power off
-- [ ] cpu power states
 - [ ] Bluetooth
 - [ ] Audio
 - [ ] Camera
 - [ ] Microphone
 - [ ] Special keys
-- [ ] cpu freq scaling
+- [x] cpu freq scaling
 
 ### General TODO: 
  - create patch instead of full module sources
