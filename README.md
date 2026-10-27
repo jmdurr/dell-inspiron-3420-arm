@@ -19,6 +19,9 @@ then
 - Build kernel and setup boot config
 - Add kernel params to boot as defined in grub.cfg
 - Obtain wifi and adsp firmware from windows install
+- add adsp firmware (qcadsp8180.mbn) to initramfs /usr/lib/firmware, otherwise echo start > /sys/class/remoteproc/remoteproc(0|1)/state to start power monitoring after every boot
+
+
 
 ### Status:
 - [x] keyboard
@@ -52,24 +55,9 @@ Oct 16 20:00:01 fedora kernel: qcom-edp-phy aec2a00.phy: error -ENOENT: /soc@0/p
 Oct 16 20:00:01 fedora kernel: qcom-edp-phy aec2a00.phy: error -ENOENT: failed to get clocks
 Oct 16 20:00:01 fedora kernel: qcom-edp-phy aec2a00.phy: probe with driver qcom-edp-phy failed with error -2
 
-Oct 16 20:00:01 fedora kernel: failed to register cpuidle driver
-
-Oct 16 20:00:01 fedora kernel: integrity: Couldn't get size: Unsupported (0x8000000000000003)
-Oct 16 20:00:01 fedora kernel: integrity: MODSIGN: Couldn't get UEFI db list
-Oct 16 20:00:01 fedora kernel: integrity: Couldn't get size: Unsupported (0x8000000000000003)
-
 Oct 16 20:00:11 fedora kernel: qcom_q6v5_pas 4080000.remoteproc: unable to resolve memory-region
 
 Oct 16 20:00:11 fedora kernel: aux_bridge.aux_bridge aux_bridge.aux_bridge.0: error -ENODEV: failed to acquire drm_bridge
-
-Oct 16 20:00:12 fedora kernel: remoteproc remoteproc0: Direct firmware load for qcadsp8180.mbn failed with error -2
-Oct 16 20:00:12 fedora kernel: remoteproc remoteproc0: powering up adsp
-Oct 16 20:00:12 fedora kernel: remoteproc remoteproc0: Direct firmware load for qcadsp8180.mbn failed with error -2
-Oct 16 20:00:12 fedora kernel: remoteproc remoteproc0: request_firmware failed: -2
-
-Jan 01 21:43:22 fedora kernel: hwmon hwmon4: temp1_input not attached to any thermal zone
-Jan 01 21:43:22 fedora kernel: hwmon hwmon4: temp2_input not attached to any thermal zone
-Jan 01 21:43:22 fedora kernel: hwmon hwmon4: temp3_input not attached to any thermal zone
 
 Oct 16 20:00:13 fedora kernel: synth uevent: /devices/platform/pmic-glink/pmic_glink.power-supply.0/power_supply/qcom-battmgr-ac: failed to send uevent
 Oct 16 20:00:13 fedora udevadm[507]: qcom-battmgr-ac: Failed to write 'add' to '/sys/devices/platform/pmic-glink/pmic_glink.power-supply.0/power_supply/qcom-battmgr-ac/uevent': Resource tem>
