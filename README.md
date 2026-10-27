@@ -1,11 +1,14 @@
 ## Dell Inspiron 3420 Arm Linux Support
 
-Tested with Fedora 46 rawhide kernel 7.3 live usb. The DTS still needs cleanup and
-I am still working through various support and returning as much kernel
-functionality as possible.
+### Goal: 
+Enough support for the sc8180xp qualcomm gen2 SOC in the dell inspiron 3420 to 
+be a daily driver.
+
+Tested with Fedora 46 rawhide kernel 7.3 live usb and internal SSD installation. 
 
 ### Steps:
-- apply dtsmake.patch to linux kernel source tree 7.3
+- git apply kernel.patch to kernel source root
+- build kernel
 
 or 
 

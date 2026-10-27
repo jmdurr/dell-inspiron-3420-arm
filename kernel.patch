@@ -1,0 +1,854 @@
+
+diff --git a/home/mdurr/dev/kernel/kernel-7.3.0-build/kernel-7.3-rc7-105-g2f2f7eeef8b0/linux-7.3.0-0.rc7.261016g2f2f7eeef8b0.62.sc8180xp.fc46.aarch64//drivers/phy/qualcomm/phy-qcom-qmp-pcie.c b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
+index b681a1e..48e283d 100644
+--- a/home/mdurr/dev/kernel/kernel-7.3.0-build/kernel-7.3-rc7-105-g2f2f7eeef8b0/linux-7.3.0-0.rc7.261016g2f2f7eeef8b0.62.sc8180xp.fc46.aarch64//drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
++++ b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
+@@ -43,7 +43,7 @@
+ #include "phy-qcom-qmp-pcs-pcie-v10.h"
+ #include "phy-qcom-qmp-pcs-pcie-v10_60.h"
+ 
+-#define PHY_INIT_COMPLETE_TIMEOUT		10000
++#define PHY_INIT_COMPLETE_TIMEOUT		1000000
+ 
+ /* set of registers with offsets different per-PHY */
+ enum qphy_reg_layout {
+@@ -4078,7 +4078,7 @@ static inline void qphy_clrbits(void __iomem *base, u32 offset, u32 val)
+ 
+ /* list of clocks required by phy */
+ static const char * const qmp_pciephy_clk_l[] = {
+-	"aux", "cfg_ahb", "ref", "refgen", "rchng", "phy_aux",
++	"aux", "cfg_ahb", "ref", "refgen", "rchng", "phy_aux", "rfclk",
+ };
+ 
+ /* list of regulators */
+@@ -5693,13 +5693,13 @@ static int qmp_pcie_init(struct phy *phy)
+ 		qphy_checkbits(pcs, cfg->regs[QPHY_START_CTRL], SERDES_START | PCS_START) &&
+ 		qphy_checkbits(pcs, cfg->regs[QPHY_PCS_POWER_DOWN_CONTROL], cfg->pwrdn_ctrl);
+ 	qmp->skip_init = true;
+-
+ 	skip_reset = qmp->skip_init && !qphy_checkbits(pcs, cfg->regs[QPHY_PCS_STATUS],
+ 							    cfg->phy_status);
+ 
+ 	if (!qmp->skip_init && !cfg->tbls.serdes_num) {
+-		dev_err(qmp->dev, "Init sequence not available\n");
+-		return -ENODATA;
++	  //dev_err(qmp->dev, "Init sequence not available\n");
++	  //	return -ENODATA;
++	  dev_info(qmp->dev,"SC8180X TEST: Skip PHy BCR assertion\n");
+ 	}
+ 
+ 	ret = regulator_bulk_enable(cfg->num_vregs, qmp->vregs);
+@@ -5731,17 +5731,29 @@ static int qmp_pcie_init(struct phy *phy)
+ 	}
+ 
+ 	if (!qmp->skip_init) {
+-		ret = reset_control_bulk_deassert(cfg->num_resets, qmp->resets);
+-		if (ret) {
+-			dev_err(qmp->dev, "reset deassert failed\n");
+-			goto err_assert_reset;
+-		}
+-	}
+ 
+ 	ret = clk_bulk_prepare_enable(ARRAY_SIZE(qmp_pciephy_clk_l), qmp->clks);
+ 	if (ret)
+ 		goto err_assert_reset;
+ 
++	ret = reset_control_bulk_deassert(cfg->num_resets, qmp->resets);
++	if (ret) {
++	  dev_err(qmp->dev, "reset deassert failed\n");
++	  clk_bulk_disable_unprepare(ARRAY_SIZE(qmp_pciephy_clk_l),qmp->clks);
++	  goto err_assert_reset;
++	}
++	usleep_range(1000,1200);
++	dev_info(qmp->dev,"SC8180XP test: PHY reset released after clocks\n");
++	}
++
++
++	if (!strcmp(dev_name(qmp->dev),"1c06000.phy")){
++		int i;
++		for (i = 0; i < ARRAY_SIZE(qmp_pciephy_clk_l); i++){
++			if (qmp->clks[i].clk)
++				dev_info(qmp->dev,"clock %s enabled %d rate %lu\n",qmp->clks[i].id,__clk_is_enabled(qmp->clks[i].clk), clk_get_rate(qmp->clks[i].clk));
++		}
++	}
+ 	return 0;
+ 
+ err_assert_reset:
+@@ -5770,6 +5782,166 @@ static int qmp_pcie_exit(struct phy *phy)
+ 	return 0;
+ }
+ 
++
++/*
++ * Diagnostic only - drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
++ * Field names (serdes, pcs, clks/num_clks) match current mainline; adjust if
++ * your tree differs.  Compile-test before use.
++ *
++ * Goal: capture PHY state BEFORE the poll (not after failed-power-on cleanup),
++ * and find out whether the 10 ms timeout is simply too short.
++ */
++
++static void qmp_pcie_diag(struct qmp_pcie *qmp, const char *tag)
++{
++	const struct qmp_phy_cfg *cfg = qmp->cfg;
++	static const u16 sd[] = { 0x10, 0x1c, 0x48, 0x50, 0x58, 0x94, 0xa4, 0xbc,
++				  0xc4, 0x10c, 0x154, 0x158, 0x16c, 0x1bc };
++	int i;
++
++	dev_info(qmp->dev, "%s: SW_RESET=%08x PD=%08x START=%08x STATUS1=%08x REV=%08x\n",
++		 tag,
++		 readl(qmp->pcs + cfg->regs[QPHY_SW_RESET]),
++		 readl(qmp->pcs + cfg->regs[QPHY_PCS_POWER_DOWN_CONTROL]),
++		 readl(qmp->pcs + cfg->regs[QPHY_START_CTRL]),
++		 readl(qmp->pcs + cfg->regs[QPHY_PCS_STATUS]),
++		 readl(qmp->pcs + 0x04));
++	for (i = 0; i < ARRAY_SIZE(sd); i++)
++		dev_info(qmp->dev, "%s: serdes[%#x]=%08x\n", tag, sd[i],
++			 readl(qmp->serdes + sd[i]));
++	for (i = 0; i < ARRAY_SIZE(qmp_pciephy_clk_l); i++)
++		dev_info(qmp->dev, "%s: clk %s en=%d rate=%lu\n", tag,
++			 qmp->clks[i].id, __clk_is_enabled(qmp->clks[i].clk),
++			 clk_get_rate(qmp->clks[i].clk));
++	for (i = 0; i < qmp->num_pipe_clks; i++)
++		dev_info(qmp->dev, "%s: pipe clk %s en=%d rate=%lu\n", tag,
++			 qmp->pipe_clks[i].id, __clk_is_enabled(qmp->pipe_clks[i].clk),
++			 clk_get_rate(qmp->pipe_clks[i].clk));
++}
++
++/* in qmp_pcie_power_on():
++ *   1) just before "Pull PHY out of reset state":   qmp_pcie_diag(qmp, "pre-reset-release");
++ *   2) right after the START_CTRL setbits + delay:   qmp_pcie_diag(qmp, "post-start");
++ *   3) in the readl_poll_timeout failure branch,
++ *      BEFORE clk_bulk_disable_unprepare():          qmp_pcie_diag(qmp, "timeout");
++ *   4) TEMPORARY: change PHY_INIT_COMPLETE_TIMEOUT from 10000 to 1000000 (1 s)
++ *      and log the elapsed time if it eventually succeeds.
++ */
++
++/*
++ * Diagnostic #2 - drivers/phy/qualcomm/phy-qcom-qmp-pcie.c (v7.3)
++ * Find out WHICH register blocks accept writes.  Place above qmp_pcie_power_on().
++ * Struct/field names checked against v7.3 (qmp_phy_init_tbl, qmp_pcie, qmp_phy_cfg).
++ */
++
++static void qmp_pcie_verify_tbl(struct qmp_pcie *qmp, const char *blk,
++				void __iomem *base,
++				const struct qmp_phy_init_tbl *tbl, int num)
++{
++	int i, bad = 0;
++
++	if (!tbl || !base)
++		return;
++	for (i = 0; i < num; i++) {
++		u32 v = readl(base + tbl[i].offset);
++
++		if (v != tbl[i].val) {
++			bad++;
++			dev_info(qmp->dev, "VERIFY %s %s off=%#x want=%#x got=%#x\n",
++				 blk, tbl[i].name, tbl[i].offset, tbl[i].val, v);
++		}
++	}
++	dev_info(qmp->dev, "VERIFY %s: %d/%d entries mismatch\n", blk, bad, num);
++}
++
++static void qmp_pcie_verify_all(struct qmp_pcie *qmp)
++{
++	const struct qmp_phy_cfg_tbls *t = &qmp->cfg->tbls;
++
++	qmp_pcie_verify_tbl(qmp, "serdes",   qmp->serdes,   t->serdes,   t->serdes_num);
++	qmp_pcie_verify_tbl(qmp, "tx",       qmp->tx,       t->tx,       t->tx_num);
++	qmp_pcie_verify_tbl(qmp, "rx",       qmp->rx,       t->rx,       t->rx_num);
++	qmp_pcie_verify_tbl(qmp, "pcs",      qmp->pcs,      t->pcs,      t->pcs_num);
++	qmp_pcie_verify_tbl(qmp, "pcs_misc", qmp->pcs_misc, t->pcs_misc, t->pcs_misc_num);
++}
++
++/*
++ * Call sites in qmp_pcie_power_on():
++ *   A) right after qmp_pcie_init_registers(qmp, mode_tbls):   qmp_pcie_verify_all(qmp);
++ *   B) PCS write probe, right before "Pull PHY out of reset state":
++ *        u32 a, b;
++ *        a = readl(qmp->pcs + 0xdc);               // REFGEN_REQ_CONFIG1, table value 0x0d
++ *        writel(a ^ 0x1, qmp->pcs + 0xdc);
++ *        b = readl(qmp->pcs + 0xdc);
++ *        writel(a, qmp->pcs + 0xdc);
++ *        dev_info(qmp->dev, "PCS probe: before=%#x after-xor-write=%#x\n", a, b);
++ *      (Repeat with SW_RESET: writel(0, pcs+0x0) then readl.)
++ *
++ * In pcie-qcom.c, qcom_pcie_phy_power_on() beforehand (or inside the diag fn if
++ * you can reach it), also log:  readl(pcie->parf + PARF_PHY_CTRL)  [0x40]
++ * to confirm PHY_TEST_PWR_DOWN (bit 0) is clear when PHY power-on runs.
++ */
++
++static void qmp_pcie_gcc_dump(struct qmp_pcie *qmp, const char *tag)
++{
++	static const struct { u32 off; const char *n; } r[] = {
++		{ 0x6f000, "GCC_PCIE_PHY_BCR (common, not in any upstream DT)" },
++		{ 0x6c01c, "GCC_PCIE_0_PHY_BCR" },
++		{ 0x6b000, "GCC_PCIE_0_BCR" },
++		{ 0x6b004, "PCIE_0_GDSCR" },
++		{ 0x6f004, "GCC_PCIE_PHY_AUX_CBCR" },
++		{ 0x6f02c, "GCC_PCIE0_PHY_REFGEN_CBCR" },
++		{ 0x8c00c, "GCC_PCIE_0_CLKREF_CBCR" },
++	};
++	void __iomem *g = ioremap(0x100000, 0x100000);
++	int i;
++
++	if (!g)
++		return;
++	for (i = 0; i < ARRAY_SIZE(r); i++)
++		dev_info(qmp->dev, "%s: GCC[%#x] %s = %08x\n", tag, r[i].off, r[i].n,
++			 readl(g + r[i].off));
++	iounmap(g);
++}
++
++
++static void qmp_pcie_sweep(struct qmp_pcie *qmp)
++{
++	u32 off;
++ 
++	for (off = 0x600; off < 0x1000; off += 0x100) {
++		u32 a = readl(qmp->serdes + off + 0x10);   /* arbitrary reg per 256 B window */
++ 
++		writel(a ^ 0x1, qmp->serdes + off + 0x10);
++		dev_info(qmp->dev, "SWEEP off=%#x: before=%#x after=%#x %s\n",
++			 off + 0x10, a, readl(qmp->serdes + off + 0x10),
++			 (readl(qmp->serdes + off + 0x10) == (a ^ 1)) ? "WRITABLE" : "ignored");
++		writel(a, qmp->serdes + off + 0x10);
++	}
++}
++
++static void qmp_pcie_pcs_probe(struct qmp_pcie *qmp, const char *tag)
++{
++	const struct qmp_phy_cfg *cfg = qmp->cfg;
++	void __iomem *p = qmp->pcs + 0xdc;               /* PCS REFGEN_REQ_CONFIG1 */
++	void __iomem *r = qmp->pcs + cfg->regs[QPHY_SW_RESET];
++	u32 a, b, ra, rb;
++
++	a = readl(p);
++	writel(a ^ 0x1, p);
++	b = readl(p);
++	writel(a, p);                                    /* restore */
++
++	ra = readl(r);
++	writel(ra ^ 0x1, r);
++	rb = readl(r);
++	writel(ra, r);                                   /* restore */
++
++	dev_info(qmp->dev, "PCS probe [%s]: 0xdc %#x -> %#x (%s), SW_RESET %#x -> %#x (%s)\n",
++		 tag, a, b, (b == (a ^ 1)) ? "WRITABLE" : "ignored",
++		 ra, rb, (rb == (ra ^ 1)) ? "WRITABLE" : "ignored");
++}
++
+ static int qmp_pcie_power_on(struct phy *phy)
+ {
+ 	struct qmp_pcie *qmp = phy_get_drvdata(phy);
+@@ -5780,7 +5952,8 @@ static int qmp_pcie_power_on(struct phy *phy)
+ 	unsigned int mask, val;
+ 	bool skip_reset;
+ 	int ret;
+-
++	
++	
+ 	skip_reset = qmp->skip_init && !qphy_checkbits(pcs, cfg->regs[QPHY_PCS_STATUS],
+ 							    cfg->phy_status);
+ 	/*
+@@ -5797,14 +5970,26 @@ static int qmp_pcie_power_on(struct phy *phy)
+ 		mode_tbls = cfg->tbls_rc;
+ 	else
+ 		mode_tbls = cfg->tbls_ep;
+-
++	dev_info(qmp->dev,
++		 "SC8180XP PRE tables PCS: 1a4=%08x 188=%08x 198=%08x 19c=%08x 1ec=%08x; MISC: bc=%08x e0=%08x 1c=%08x\n",
++		 readl(qmp->pcs + 0x1a4), readl(qmp->pcs + 0x188),
++		 readl(qmp->pcs + 0x198), readl(qmp->pcs + 0x19c),
++		 readl(qmp->pcs + 0x1ec), readl(qmp->pcs_misc + 0xbc),
++		 readl(qmp->pcs_misc + 0xe0), readl(qmp->pcs_misc + 0x1c));
+ 	qmp_pcie_init_registers(qmp, &cfg->tbls);
+ 	qmp_pcie_init_registers(qmp, mode_tbls);
+-
++	dev_info(qmp->dev,
++		 "SC8180XP POST tables PCS: 1a4=%08x 188=%08x 198=%08x 19c=%08x 1ec=%08x; MISC: bc=%08x e0=%08x 1c=%08x\n",
++		 readl(qmp->pcs + 0x1a4), readl(qmp->pcs + 0x188),
++		 readl(qmp->pcs + 0x198), readl(qmp->pcs + 0x19c),
++		 readl(qmp->pcs + 0x1ec), readl(qmp->pcs_misc + 0xbc),
++		 readl(qmp->pcs_misc + 0xe0), readl(qmp->pcs_misc + 0x1c));
++	qmp_pcie_verify_all(qmp);
+ skip_tbls_init:
+ 	ret = clk_bulk_prepare_enable(qmp->num_pipe_clks, qmp->pipe_clks);
+ 	if (ret)
+ 		return ret;
++	
+ 
+ 	if (!skip_reset) {
+ 		ret = reset_control_deassert(qmp->nocsr_reset);
+@@ -5816,23 +6001,54 @@ static int qmp_pcie_power_on(struct phy *phy)
+ 
+ 	if (qmp->skip_init)
+ 		goto skip_serdes_start;
+-
++        dev_err(qmp->dev,"QMP PCS base=%p",pcs);
++	dev_err(qmp->dev,"QMP REG OFFSETS: SW_RESET=0x%x START_CTRL=0x%x PCS_STATUS=0x%x\n",cfg->regs[QPHY_SW_RESET],cfg->regs[QPHY_START_CTRL],cfg->regs[QPHY_PCS_STATUS]);
++	qmp_pcie_diag(qmp,"pre-reset-release");
++	u32 a,b;
++        a = readl(qmp->pcs + 0xdc);               // REFGEN_REQ_CONFIG1, table value 0x0d
++        writel(a ^ 0x1, qmp->pcs + 0xdc);
++        b = readl(qmp->pcs + 0xdc);
++	writel(a, qmp->pcs + 0xdc);
++	
+ 	/* Pull PHY out of reset state */
++	
++	
++	
++	dev_info(qmp->dev,"PCIe0 PCS map: pcs=%px reset_off=0x%x start_off=0x%x status_off=0x%x\n",pcs,cfg->regs[QPHY_SW_RESET],cfg->regs[QPHY_START_CTRL],cfg->regs[QPHY_PCS_STATUS]);
+ 	qphy_clrbits(pcs, cfg->regs[QPHY_SW_RESET], SW_RESET);
+ 
++	a = readl(qmp->pcs + 0x0);               // REFGEN_REQ_CONFIG1, table value 0x0d
++        writel(a ^ 0x1, qmp->pcs + 0x0);
++        b = readl(qmp->pcs + 0x0);
++	writel(a, qmp->pcs + 0x0);
++	
++	
++
++	dev_err(qmp->dev,"RESET READBACK: 0x%08x\n",readl(pcs + cfg->regs[QPHY_SW_RESET]));
++	dev_err(qmp->dev,"BEFORE_START SW_RESET=0x%08x START_CTRL=0x%08x PCS_STATUS=0x%08x\n",readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]),readl(pcs + cfg->regs[QPHY_PCS_STATUS]));
+ 	/* start SerDes and Phy-Coding-Sublayer */
+ 	qphy_setbits(pcs, cfg->regs[QPHY_START_CTRL], SERDES_START | PCS_START);
++	dev_err(qmp->dev,"AFTER_START SW_RESET=0x%08x START_CTRL=0x%08x PCS_STATUS=0x%08x\n",readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]),readl(pcs + cfg->regs[QPHY_PCS_STATUS]));
+ 
+ 	if (!cfg->skip_start_delay)
+ 		usleep_range(1000, 1200);
++	qmp_pcie_diag(qmp,"post-start");
++	dev_err(qmp->dev,"AFTER_DELAY SW_RESET=0x%08x START_CTRL=0x%08x PCS_STATUS=0x%08x\n",readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]),readl(pcs + cfg->regs[QPHY_PCS_STATUS]));
+ 
+ skip_serdes_start:
+ 	status = pcs + cfg->regs[QPHY_PCS_STATUS];
+ 	mask = cfg->phy_status;
+ 	ret = readl_poll_timeout(status, val, !(val & mask), 200,
+ 				 PHY_INIT_COMPLETE_TIMEOUT);
++	dev_info(qmp->dev,"PHY RESULT: ret=%d status=%08x mask=%08x reset=%08x start=%08x power=%08x\n"
++		 ,ret,val,mask,readl(pcs + cfg->regs[QPHY_SW_RESET]),
++		 readl(pcs+cfg->regs[QPHY_START_CTRL])
++		 ,readl(pcs+cfg->regs[QPHY_PCS_POWER_DOWN_CONTROL])
++		 );
+ 	if (ret) {
+-		dev_err(qmp->dev, "phy initialization timed-out\n");
++		qmp_pcie_diag(qmp,"timeout");
++		dev_err(qmp->dev, "phy initialization timed-out: PCS_STATUS=0x%08x mask=0x%08x SW_RESET=0x%08x START_CTRL=0x%08x\n",val,mask,readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]));
++
+ 		goto err_disable_pipe_clk;
+ 	}
+ 
+diff --git a/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
+new file mode 100644
+index 0000000..5e42724
+--- /dev/null
++++ b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
+@@ -0,0 +1,509 @@
++// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * SC8180X laptop ("QCOMM SDM8180" DSDT) - memory map, lid switch (LID0),
++ * touchpad (TCPD) and keyboard (ECSH).
++ *
++ * Sources:
++ *   - GRUB `lsmmap` photo (UEFI memory map)  -> memory@80000000, reserved-memory
++ *   - dsdt.dsl                               -> LID0 / TCPD / ECSH / I2C8
++ *
++ * Built on top of mainline arch/arm64/boot/dts/qcom/sc8180x.dtsi.
++ */
++
++/dts-v1/;
++
++#include <dt-bindings/gpio/gpio.h>
++#include <dt-bindings/input/gpio-keys.h>
++#include <dt-bindings/input/input.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/regulator/qcom,rpmh-regulator.h>
++#include <dt-bindings/spmi/spmi.h>
++#include <dt-bindings/interrupt-controller/irq.h>
++
++#include "sc8180x.dtsi"
++
++/*
++ * EFI map: RAM at 0x80000000-0x27ba00000.  Mainline reservations at
++ * 0x9d400000 and 0x9f800000 are KEPT even though UEFI reports them as
++ * available: they are likely firmware/secure memory (safer to leave reserved).
++ */
++
++/ {
++	model = "Dell Inspiron 3420 - SC8180xp";
++	compatible = "dell,inspiron-3420-sc8180xp","qcom,sc8180x";
++
++	/* EFI: 0x80000000 + 0x1fba00000 = 0x27ba00000 (~7.9 GiB usable) */
++	memory@80000000 {
++		device_type = "memory";
++		reg = <0x0 0x80000000 0x1 0xfba00000>;
++	};
++
++	reserved-memory {
++		/* EFI "reserved RAM" 0x80600000 len 0x2400000 */
++		reserved@80600000 {
++			reg = <0x0 0x80600000 0x0 0x2400000>;
++			no-map;
++		};
++
++		/* EFI "reserved RAM" 0x85ff0000 len 0x10000 */
++		reserved@85ff0000 {
++			reg = <0x0 0x85ff0000 0x0 0x10000>;
++			no-map;
++		};
++
++		/*
++		 * EFI "reserved RAM" 0x8b700000 len 0xf400000 (to 0x9ab00000).
++		 * UEFI only shows the whole span; the split into remoteproc
++		 * regions is borrowed from sc8180x-lenovo-flex-5g.dts.
++		 */
++		wlan_mem: wlan-region@8bc00000 {
++			reg = <0x0 0x8bc00000 0x0 0x180000>;
++			no-map;
++		};
++
++		mpss_mem: mpss-region@8d800000 {
++			reg = <0x0 0x8d800000 0x0 0x3000000>;
++			no-map;
++		};
++
++		adsp_mem: adsp-region@90800000 {
++			reg = <0x0 0x90800000 0x0 0x1c00000>;
++			no-map;
++		};
++
++		cdsp_mem: cdsp-region@98900000 {
++			reg = <0x0 0x98900000 0x0 0x1400000>;
++			no-map;
++		};
++
++		/*
++		 * UEFI runtime/ACPI span, contiguous in the map:
++		 *   0xffa76000 +0x190000  firmware code
++		 *   0xffc06000 +0x2bc000  reserved
++		 *   0xffec2000 +0x10000   reserved
++		 *   0xffed2000 +0x50000   ACPI NVS
++		 *   0xfff22000 +0xdc000   ACPI reclaimable
++		 * Only needed for a DT-only boot; harmless under EFI.
++		 */
++		reserved@ffa76000 {
++			reg = <0x0 0xffa76000 0x0 0x588000>;
++			no-map;
++		};
++	};
++
++	vph_pwr: regulator-vph-pwr {
++		compatible = "regulator-fixed";
++		regulator-name = "vph_pwr";
++		regulator-min-microvolt = <3700000>;
++		regulator-max-microvolt = <3700000>;
++		regulator-always-on;
++	};
++
++	/* \_SB.LID0 (PNP0C0D); state read from GpioIo pin 0x79 (\_SB.GIO0.LIDR) */
++	gpio-keys {
++		compatible = "gpio-keys";
++
++		pinctrl-0 = <&hall_int_active_state>;
++		pinctrl-names = "default";
++
++		lid-switch {
++			label = "lid";
++			gpios = <&tlmm 121 GPIO_ACTIVE_LOW>;	/* high = open */
++			linux,input-type = <EV_SW>;
++			linux,code = <SW_LID>;
++			wakeup-source;				/* AEI event is wake-capable */
++			wakeup-event-action = <EV_ACT_DEASSERTED>;
++		};
++	};
++};
++
++&spmi_bus {
++	  pmic@0 {
++	  	 compatible="qcom,spmi-pmic";
++		 reg=<0x0 SPMI_USID>;
++		 
++		 };
++};
++
++&qupv3_id_0 {
++	status = "okay";
++};
++
++/* ACPI \_SB.I2C8 (UID 8): MMIO 0x89c000, GSIV 640 (SPI 608) == mainline i2c7 */
++&i2c7 {
++	clock-frequency = <400000>;	/* I2cSerialBus ConnectionSpeed 0x61a80 */
++
++	pinctrl-0 = <&i2c7_active>;
++	pinctrl-names = "default";
++
++	status = "okay";
++
++	/* \_SB.I2C8.ECSH: HID "ENES6243", I2C addr 0x05 */
++	keyboard@5 {
++		compatible = "hid-over-i2c";
++		reg = <0x5>;
++		hid-descr-addr = <0x20>;		/* _DSM function 1 */
++
++		/* GpioInt pin 0xb1, level, active-low, wake-capable */
++		interrupts-extended = <&tlmm 177 IRQ_TYPE_LEVEL_LOW>;
++		wakeup-source;
++
++		pinctrl-0 = <&kb_int_default>;
++		pinctrl-names = "default";
++	};
++
++	/* \_SB.I2C8.TCPD: HID 27C60002 (TPVF=1) or 06CB0002 (TPVF=2), addr 0x2c */
++	touchpad@2c {
++		compatible = "hid-over-i2c";
++		reg = <0x2c>;
++		hid-descr-addr = <0x20>;		/* _DSM function 1 */
++
++		/*
++		 * FIXME: DSDT GpioInt pin is 0x280 (640), outside the TLMM range
++		 * (0-189).  GPIO 24 is the upstream Lenovo Flex 5G value, not
++		 * taken from this DSDT - verify on hardware.
++		 */
++		interrupts-extended = <&tlmm 24 IRQ_TYPE_LEVEL_LOW>;
++		wakeup-source;
++
++		pinctrl-0 = <&tp_int_default>;
++		pinctrl-names = "default";
++	};
++};
++
++&tlmm {
++	gpio-reserved-ranges = <0 4>, <47 4>, <126 4>;
++
++	hall_int_active_state: hall-int-active-state {
++		pins = "gpio121";
++		function = "gpio";
++		bias-disable;			/* GpioIo PullNone */
++	};
++
++	/* pinmux is not in the DSDT (firmware sets it); values from upstream */
++	i2c7_active: i2c7-active-state {
++		pins = "gpio98", "gpio99";
++		function = "qup7";
++		bias-pull-up;
++		drive-strength = <2>;
++	};
++
++	kb_int_default: kb-int-default-state {
++		pins = "gpio177";
++		function = "gpio";
++		bias-disable;			/* PullDefault in DSDT */
++		drive-strength = <2>;
++	};
++
++	tp_int_default: tp-int-default-state {
++		pins = "gpio24";
++		function = "gpio";
++		bias-pull-up;			/* GpioInt PullUp */
++		drive-strength = <2>;
++	};
++	pcie0_default_state: pcie0-default-state {
++		perst-n-pins {
++			pins = "gpio35";
++			function = "gpio";
++			drive-strength= <2>;
++			output-low;
++			bias-pull-down;
++		};
++		clkreq-n-pins {
++			pins = "gpio36";
++			function = "pci_e0";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++		wake-n-pins {
++			pins = "gpio37";
++			function = "gpio";
++			drive-strength = <2>;
++			bias-pull-up;
++		};
++	};
++};
++
++/*
++ * RPMh regulators needed by the USB PHYs.  Not in the DSDT (Windows manages
++ * them through PEP0); values taken from sc8180x-lenovo-flex-5g.dts.
++ */
++&apps_rsc {
++	regulators-0 {
++		compatible = "qcom,pmc8180-rpmh-regulators";
++		qcom,pmic-id = "a";
++
++		vdd-s5-supply = <&vph_pwr>;
++		vdd-l7-l12-l14-l15-supply = <&vreg_s5a_2p0>;
++
++		vreg_s5a_2p0: smps5 {
++			regulator-min-microvolt = <2040000>;
++			regulator-max-microvolt = <2100000>;
++		};
++
++		vreg_l12a_1p8: ldo12 {
++			regulator-min-microvolt = <1800000>;
++			regulator-max-microvolt = <1800000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-1 {
++		compatible = "qcom,pmc8180c-rpmh-regulators";
++		qcom,pmic-id = "c";
++
++		vdd-s6-supply = <&vph_pwr>;
++		vdd-l2-l3-supply = <&vreg_s6c_1p35>;
++		vdd-bob-supply = <&vph_pwr>;
++
++		vreg_s6c_1p35: smps6 {
++			//regulator-min-microvolt = <1350000>;
++			//regulator-max-microvolt = <1372000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l3c_1p2: ldo3 {
++			regulator-min-microvolt = <1200000>;
++			regulator-max-microvolt = <1200000>;
++			regulator-allow-set-load;
++			regulator-always-on;
++		};
++
++		vreg_bob: bob {
++			regulator-min-microvolt = <3296000>;
++			regulator-max-microvolt = <3350000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++
++	regulators-2 {
++		compatible = "qcom,pmc8180-rpmh-regulators";
++		qcom,pmic-id = "e";
++
++		vdd-s4-supply = <&vph_pwr>;
++		vdd-l3-l4-l5-l18-supply = <&vreg_s4e_0p98>;
++		vdd-l13-l16-l17-supply = <&vreg_bob>;
++
++		vreg_s4e_0p98: smps4 {
++			regulator-min-microvolt = <992000>;
++			regulator-max-microvolt = <992000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++
++		vreg_l5e_0p88: ldo5 {
++			regulator-min-microvolt = <880000>;
++			regulator-max-microvolt = <880000>;
++			regulator-allow-set-load;
++			regulator-always-on;
++		};
++
++		vreg_l16e_3p0: ldo16 {
++			regulator-min-microvolt = <3072000>;
++			regulator-max-microvolt = <3072000>;
++			regulator-initial-mode = <RPMH_REGULATOR_MODE_HPM>;
++		};
++	};
++};
++
++/*
++ * USB.  DSDT: URS0 @0x0a600000 = usb_prim, URS1 @0x0a800000 = usb_sec,
++ * USB2 @0x0a400000 = usb_mp (2 ports).  Host mode only; the Type-C
++ * (pmic_glink/UCSI) orientation switching is omitted, so SuperSpeed works
++ * in one cable orientation only - high-speed works in both.
++ */
++&usb_prim_hsphy {
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++	vdda18-supply = <&vreg_l12a_1p8>;
++	vdda33-supply = <&vreg_l16e_3p0>;
++
++	status = "okay";
++};
++
++&usb_prim_qmpphy {
++	vdda-phy-supply = <&vreg_l5e_0p88>;
++	vdda-pll-supply = <&vreg_l3c_1p2>;
++
++	status = "okay";
++};
++
++&usb_prim {
++	status = "okay";
++};
++
++&usb_prim_dwc3 {
++	dr_mode = "host";
++};
++
++&usb_sec_hsphy {
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++	vdda18-supply = <&vreg_l12a_1p8>;
++	vdda33-supply = <&vreg_l16e_3p0>;
++
++	status = "okay";
++};
++
++&usb_sec_qmpphy {
++	vdda-phy-supply = <&vreg_l5e_0p88>;
++	vdda-pll-supply = <&vreg_l3c_1p2>;
++
++	status = "okay";
++};
++
++&usb_sec {
++	status = "okay";
++};
++
++&usb_sec_dwc3 {
++	dr_mode = "host";
++};
++
++&usb_mp_hsphy0 {
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++	vdda18-supply = <&vreg_l12a_1p8>;
++	vdda33-supply = <&vreg_l16e_3p0>;
++
++	status = "okay";
++};
++
++&usb_mp_hsphy1 {
++	vdda-pll-supply = <&vreg_l5e_0p88>;
++	vdda18-supply = <&vreg_l12a_1p8>;
++	vdda33-supply = <&vreg_l16e_3p0>;
++
++	status = "okay";
++};
++
++&usb_mp_qmpphy0 {
++	vdda-phy-supply = <&vreg_l5e_0p88>;
++	vdda-pll-supply = <&vreg_l3c_1p2>;
++
++	status = "okay";
++};
++
++&usb_mp_qmpphy1 {
++	vdda-phy-supply = <&vreg_l5e_0p88>;
++	vdda-pll-supply = <&vreg_l3c_1p2>;
++
++	status = "okay";
++};
++
++&usb_mp {
++	status = "okay";
++};
++
++&usb_mp_dwc3 {
++	dr_mode = "host";
++};
++
++&usb_mp_hsphy0 {
++	       status = "okay";
++	       };
++&usb_mp_hsphy1 {
++status = "okay";
++};
++
++&usb_mp_qmpphy0 {
++status = "okay";
++};
++&usb_mp_qmpphy1 {
++status = "okay";
++};
++
++&osm_l3 {
++status="disabled";
++};
++
++
++&soc {
++	sync-state-hold {
++		compatible = "linux,sync-state-hold";
++
++		/* rpmhpd provider: MMCX (display), MX, CX */
++		power-domains = <&rpmhpd SC8180X_MMCX>,
++				<&rpmhpd SC8180X_MX>,
++				<&rpmhpd SC8180X_CX>;
++
++		/* one path per interconnect provider */
++		interconnects =
++			<&mmss_noc MASTER_MDP_PORT0 QCOM_ICC_TAG_ALWAYS
++			 &mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ALWAYS>,
++			<&gem_noc MASTER_AMPSS_M0 QCOM_ICC_TAG_ACTIVE_ONLY
++			 &mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ACTIVE_ONLY>,
++			<&aggre1_noc MASTER_QUP_0 QCOM_ICC_TAG_ACTIVE_ONLY
++			 &mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ACTIVE_ONLY>,
++			<&aggre2_noc MASTER_USB3 QCOM_ICC_TAG_ACTIVE_ONLY
++			 &mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ACTIVE_ONLY>,
++			<&system_noc 0 QCOM_ICC_TAG_ACTIVE_ONLY
++			 &mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ACTIVE_ONLY>,
++			<&config_noc 0 QCOM_ICC_TAG_ACTIVE_ONLY
++			 &mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ACTIVE_ONLY>,
++			<&compute_noc 0 QCOM_ICC_TAG_ACTIVE_ONLY
++			 &mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ACTIVE_ONLY>;
++	};
++};
++
++&mdss {
++  status="disabled";
++};
++&dispcc {
++  status="disabled";
++};
++&usb_mp_dwc3 {
++	     dr_mode = "host";
++	     maximum-speed = "high-speed";
++};
++
++&pcie0_phy {
++    vdda-phy-supply = <&vreg_l5e_0p88>;
++    vdda-pll-supply = <&vreg_l3c_1p2>;
++
++    assigned-clocks = <&gcc GCC_PCIE0_PHY_REFGEN_CLK>;
++    assigned-clock-rates = <100000000>;
++
++    status = "okay";
++};
++
++&pcie0 {
++    assigned-clocks = <&gcc GCC_PCIE_0_AUX_CLK>;
++    assigned-clock-rates = <19200000>;
++    pinctrl-names = "default";
++    pinctrl-0 = <&pcie0_default_state>;
++    perst-gpios = <&tlmm 35 GPIO_ACTIVE_LOW>;
++    wake-gpios = <&tlmm 37 GPIO_ACTIVE_LOW>;
++    vdda-supply=<&vreg_l5e_0p88>;
++    vddpe-3v3-supply=<&vreg_bob>;
++    status = "okay";
++};
++
++&pcie2_phy {
++	   status="okay";
++	   };
++&pcie2 {
++       status = "okay";
++       };
++
++&remoteproc_adsp {
++   memory-region = <&adsp_mem>;
++   firmware-name= "qcadsp8180.mbn";
++   status="okay";
++};
++
++&spmi_bus {
++   pmic@0 {
++   	  compatible = "qcom,pm8150", "qcom,spmi-pmic";
++	  reg = <0x0 SPMI_USID>;
++	  rtc@6000 {
++	  	   compatible = "qcom,pm8941-rtc";
++		   reg=<0x6000>;
++		   reg-names="rtc","alarm";
++		   interrupts=<0x0 0x61 0x1 IRQ_TYPE_NONE>;
++		   };
++	};
++};
++
++/ {
++    pmic-glink {
++    	       compatible="qcom,sc8180x-pmic-glink",
++	       "qcom,pmic-glink";
++	       };
++  };
