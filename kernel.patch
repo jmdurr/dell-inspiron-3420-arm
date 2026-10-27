@@ -1,7 +1,19 @@
 
-diff --git a/home/mdurr/dev/kernel/kernel-7.3.0-build/kernel-7.3-rc7-105-g2f2f7eeef8b0/linux-7.3.0-0.rc7.261016g2f2f7eeef8b0.62.sc8180xp.fc46.aarch64//drivers/phy/qualcomm/phy-qcom-qmp-pcie.c b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
-index b681a1e..48e283d 100644
---- a/home/mdurr/dev/kernel/kernel-7.3.0-build/kernel-7.3-rc7-105-g2f2f7eeef8b0/linux-7.3.0-0.rc7.261016g2f2f7eeef8b0.62.sc8180xp.fc46.aarch64//drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
+diff --git a/drivers/firmware/qcom/qcom_scm.c b/drivers/firmware/qcom/qcom_scm.c
+index 3eaa4c9..2f2f4d9 100644
+--- a/drivers/firmware/qcom/qcom_scm.c
++++ b/drivers/firmware/qcom/qcom_scm.c
+@@ -2305,6 +2305,7 @@ static const struct of_device_id qcom_scm_qseecom_allowlist[] __maybe_unused = {
+ 	{ .compatible = "asus,zenbook-a14-ux3407qa" },
+ 	{ .compatible = "asus,zenbook-a14-ux3407ra" },
+ 	{ .compatible = "asus,zenbook-a16-ux3607oa" },
++	{ .compatible = "dell,inspiron-3420-sc8180xp" },
+ 	{ .compatible = "dell,inspiron-14-plus-7441" },
+ 	{ .compatible = "dell,latitude-7455" },
+ 	{ .compatible = "dell,xps13-9345" },
+diff --git a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
+index da83358..48e283d 100644
+--- a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
 +++ b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
 @@ -43,7 +43,7 @@
  #include "phy-qcom-qmp-pcs-pcie-v10.h"
@@ -21,11 +33,12 @@ index b681a1e..48e283d 100644
  };
  
  /* list of regulators */
-@@ -5693,13 +5693,13 @@ static int qmp_pcie_init(struct phy *phy)
+@@ -5692,13 +5692,14 @@ static int qmp_pcie_init(struct phy *phy)
+ 	qmp->skip_init = qmp->nocsr_reset &&
  		qphy_checkbits(pcs, cfg->regs[QPHY_START_CTRL], SERDES_START | PCS_START) &&
  		qphy_checkbits(pcs, cfg->regs[QPHY_PCS_POWER_DOWN_CONTROL], cfg->pwrdn_ctrl);
- 	qmp->skip_init = true;
 -
++	qmp->skip_init = true;
  	skip_reset = qmp->skip_init && !qphy_checkbits(pcs, cfg->regs[QPHY_PCS_STATUS],
  							    cfg->phy_status);
  
@@ -38,7 +51,7 @@ index b681a1e..48e283d 100644
  	}
  
  	ret = regulator_bulk_enable(cfg->num_vregs, qmp->vregs);
-@@ -5731,17 +5731,29 @@ static int qmp_pcie_init(struct phy *phy)
+@@ -5730,17 +5731,29 @@ static int qmp_pcie_init(struct phy *phy)
  	}
  
  	if (!qmp->skip_init) {
@@ -74,7 +87,7 @@ index b681a1e..48e283d 100644
  	return 0;
  
  err_assert_reset:
-@@ -5770,6 +5782,166 @@ static int qmp_pcie_exit(struct phy *phy)
+@@ -5769,6 +5782,166 @@ static int qmp_pcie_exit(struct phy *phy)
  	return 0;
  }
  
@@ -241,7 +254,7 @@ index b681a1e..48e283d 100644
  static int qmp_pcie_power_on(struct phy *phy)
  {
  	struct qmp_pcie *qmp = phy_get_drvdata(phy);
-@@ -5780,7 +5952,8 @@ static int qmp_pcie_power_on(struct phy *phy)
+@@ -5779,7 +5952,8 @@ static int qmp_pcie_power_on(struct phy *phy)
  	unsigned int mask, val;
  	bool skip_reset;
  	int ret;
@@ -251,7 +264,7 @@ index b681a1e..48e283d 100644
  	skip_reset = qmp->skip_init && !qphy_checkbits(pcs, cfg->regs[QPHY_PCS_STATUS],
  							    cfg->phy_status);
  	/*
-@@ -5797,14 +5970,26 @@ static int qmp_pcie_power_on(struct phy *phy)
+@@ -5796,14 +5970,26 @@ static int qmp_pcie_power_on(struct phy *phy)
  		mode_tbls = cfg->tbls_rc;
  	else
  		mode_tbls = cfg->tbls_ep;
@@ -280,7 +293,7 @@ index b681a1e..48e283d 100644
  
  	if (!skip_reset) {
  		ret = reset_control_deassert(qmp->nocsr_reset);
-@@ -5816,23 +6001,54 @@ static int qmp_pcie_power_on(struct phy *phy)
+@@ -5815,23 +6001,54 @@ static int qmp_pcie_power_on(struct phy *phy)
  
  	if (qmp->skip_init)
  		goto skip_serdes_start;
@@ -339,10 +352,10 @@ index b681a1e..48e283d 100644
  
 diff --git a/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
 new file mode 100644
-index 0000000..5e42724
+index 0000000..b043f4c
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
-@@ -0,0 +1,509 @@
+@@ -0,0 +1,523 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * SC8180X laptop ("QCOMM SDM8180" DSDT) - memory map, lid switch (LID0),
@@ -444,6 +457,7 @@ index 0000000..5e42724
 +		regulator-always-on;
 +	};
 +
++	
 +	/* \_SB.LID0 (PNP0C0D); state read from GpioIo pin 0x79 (\_SB.GIO0.LIDR) */
 +	gpio-keys {
 +		compatible = "gpio-keys";
@@ -461,6 +475,18 @@ index 0000000..5e42724
 +		};
 +	};
 +};
++&cpu4_opp_table {
++    opp-3072000000 {
++	opp-hz = /bits/ 64 <3072000000>;
++	opp-peak-kBps = <8368000 51609600>;
++    };
++
++    opp-3148800000 {
++	opp-hz = /bits/ 64 <3148800000>;
++	opp-peak-kBps = <8368000 51609600>;
++    };
++};
++
 +
 +&spmi_bus {
 +	  pmic@0 {
@@ -755,7 +781,7 @@ index 0000000..5e42724
 +};
 +
 +&osm_l3 {
-+status="disabled";
++status="okay";
 +};
 +
 +
@@ -842,6 +868,7 @@ index 0000000..5e42724
 +		   reg=<0x6000>;
 +		   reg-names="rtc","alarm";
 +		   interrupts=<0x0 0x61 0x1 IRQ_TYPE_NONE>;
++		   qcom,uefi-rtc-info;
 +		   };
 +	};
 +};
