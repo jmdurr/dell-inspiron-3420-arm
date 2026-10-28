@@ -60,7 +60,9 @@ sudo setenforce 0
 ```
 use the following build command in fedpkg
 ```
-HMAC_USE_CLEARTEXT=1 fedpkg --release rawhide local --define "with_debug 0" --define "with_debuginfo 0" 
+# workaround for build issue in 7.3
+sudo sysctl -w crypto.af_alg_restrict=0
+fedpkg --release rawhide local 
 ```
 
 

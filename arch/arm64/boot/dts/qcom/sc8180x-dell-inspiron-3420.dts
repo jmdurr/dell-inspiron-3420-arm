@@ -130,14 +130,6 @@
 };
 
 
-&spmi_bus {
-	  pmic@0 {
-	  	 compatible="qcom,spmi-pmic";
-		 reg=<0x0 SPMI_USID>;
-		 
-		 };
-};
-
 &qupv3_id_0 {
 	status = "okay";
 };
@@ -505,9 +497,11 @@ status="okay";
    pmic@0 {
    	  compatible = "qcom,pm8150", "qcom,spmi-pmic";
 	  reg = <0x0 SPMI_USID>;
+	  #address-cells = <1>;
+	  #size-cells = <0>;
 	  rtc@6000 {
 	  	   compatible = "qcom,pm8941-rtc";
-		   reg=<0x6000>;
+		   reg=<0x6000>,<0x6100>;
 		   reg-names="rtc","alarm";
 		   interrupts=<0x0 0x61 0x1 IRQ_TYPE_NONE>;
 		   qcom,uefi-rtc-info;

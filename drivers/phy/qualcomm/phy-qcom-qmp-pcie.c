@@ -5743,16 +5743,6 @@ static int qmp_pcie_init(struct phy *phy)
 	  goto err_assert_reset;
 	}
 	usleep_range(1000,1200);
-	dev_info(qmp->dev,"SC8180XP test: PHY reset released after clocks\n");
-	}
-
-
-	if (!strcmp(dev_name(qmp->dev),"1c06000.phy")){
-		int i;
-		for (i = 0; i < ARRAY_SIZE(qmp_pciephy_clk_l); i++){
-			if (qmp->clks[i].clk)
-				dev_info(qmp->dev,"clock %s enabled %d rate %lu\n",qmp->clks[i].id,__clk_is_enabled(qmp->clks[i].clk), clk_get_rate(qmp->clks[i].clk));
-		}
 	}
 	return 0;
 
@@ -5781,61 +5771,6 @@ static int qmp_pcie_exit(struct phy *phy)
 
 	return 0;
 }
-
-static void qmp_pcie_verify_tbl(struct qmp_pcie *qmp, const char *blk,
-				void __iomem *base,
-				const struct qmp_phy_init_tbl *tbl, int num)
-{
-	int i, bad = 0;
-
-	if (!tbl || !base)
-		return;
-	for (i = 0; i < num; i++) {
-		u32 v = readl(base + tbl[i].offset);
-
-		if (v != tbl[i].val) {
-			bad++;
-			dev_info(qmp->dev, "VERIFY %s %s off=%#x want=%#x got=%#x\n",
-				 blk, tbl[i].name, tbl[i].offset, tbl[i].val, v);
-		}
-	}
-	dev_info(qmp->dev, "VERIFY %s: %d/%d entries mismatch\n", blk, bad, num);
-}
-
-static void qmp_pcie_verify_all(struct qmp_pcie *qmp)
-{
-	const struct qmp_phy_cfg_tbls *t = &qmp->cfg->tbls;
-
-	qmp_pcie_verify_tbl(qmp, "serdes",   qmp->serdes,   t->serdes,   t->serdes_num);
-	qmp_pcie_verify_tbl(qmp, "tx",       qmp->tx,       t->tx,       t->tx_num);
-	qmp_pcie_verify_tbl(qmp, "rx",       qmp->rx,       t->rx,       t->rx_num);
-	qmp_pcie_verify_tbl(qmp, "pcs",      qmp->pcs,      t->pcs,      t->pcs_num);
-	qmp_pcie_verify_tbl(qmp, "pcs_misc", qmp->pcs_misc, t->pcs_misc, t->pcs_misc_num);
-}
-
-
-static void qmp_pcie_gcc_dump(struct qmp_pcie *qmp, const char *tag)
-{
-	static const struct { u32 off; const char *n; } r[] = {
-		{ 0x6f000, "GCC_PCIE_PHY_BCR (common, not in any upstream DT)" },
-		{ 0x6c01c, "GCC_PCIE_0_PHY_BCR" },
-		{ 0x6b000, "GCC_PCIE_0_BCR" },
-		{ 0x6b004, "PCIE_0_GDSCR" },
-		{ 0x6f004, "GCC_PCIE_PHY_AUX_CBCR" },
-		{ 0x6f02c, "GCC_PCIE0_PHY_REFGEN_CBCR" },
-		{ 0x8c00c, "GCC_PCIE_0_CLKREF_CBCR" },
-	};
-	void __iomem *g = ioremap(0x100000, 0x100000);
-	int i;
-
-	if (!g)
-		return;
-	for (i = 0; i < ARRAY_SIZE(r); i++)
-		dev_info(qmp->dev, "%s: GCC[%#x] %s = %08x\n", tag, r[i].off, r[i].n,
-			 readl(g + r[i].off));
-	iounmap(g);
-}
-
 static int qmp_pcie_power_on(struct phy *phy)
 {
 	struct qmp_pcie *qmp = phy_get_drvdata(phy);
@@ -5866,7 +5801,6 @@ static int qmp_pcie_power_on(struct phy *phy)
 		mode_tbls = cfg->tbls_ep;
 	qmp_pcie_init_registers(qmp, &cfg->tbls);
 	qmp_pcie_init_registers(qmp, mode_tbls);
-	qmp_pcie_verify_all(qmp);
 skip_tbls_init:
 	ret = clk_bulk_prepare_enable(qmp->num_pipe_clks, qmp->pipe_clks);
 	if (ret)

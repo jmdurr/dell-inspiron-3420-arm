@@ -12,9 +12,27 @@ index 3eaa4c9..2f2f4d9 100644
  	{ .compatible = "dell,latitude-7455" },
  	{ .compatible = "dell,xps13-9345" },
 diff --git a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
-index da83358..48e283d 100644
+index da83358..eae3b7c 100644
 --- a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
 +++ b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
+@@ -43,7 +43,7 @@
+ #include "phy-qcom-qmp-pcs-pcie-v10.h"
+ #include "phy-qcom-qmp-pcs-pcie-v10_60.h"
+ 
+-#define PHY_INIT_COMPLETE_TIMEOUT		10000
++#define PHY_INIT_COMPLETE_TIMEOUT		1000000
+ 
+ /* set of registers with offsets different per-PHY */
+ enum qphy_reg_layout {
+@@ -4078,7 +4078,7 @@ static inline void qphy_clrbits(void __iomem *base, u32 offset, u32 val)
+ 
+ /* list of clocks required by phy */
+ static const char * const qmp_pciephy_clk_l[] = {
+-	"aux", "cfg_ahb", "ref", "refgen", "rchng", "phy_aux",
++	"aux", "cfg_ahb", "ref", "refgen", "rchng", "phy_aux", "rfclk",
+ };
+ 
+ /* list of regulators */
 @@ -5692,13 +5692,14 @@ static int qmp_pcie_init(struct phy *phy)
  	qmp->skip_init = qmp->nocsr_reset &&
  		qphy_checkbits(pcs, cfg->regs[QPHY_START_CTRL], SERDES_START | PCS_START) &&
@@ -25,14 +43,185 @@ index da83358..48e283d 100644
  							    cfg->phy_status);
  
  	if (!qmp->skip_init && !cfg->tbls.serdes_num) {
+-		dev_err(qmp->dev, "Init sequence not available\n");
+-		return -ENODATA;
++	  //dev_err(qmp->dev, "Init sequence not available\n");
++	  //	return -ENODATA;
++	  dev_info(qmp->dev,"SC8180X TEST: Skip PHy BCR assertion\n");
+ 	}
  
+ 	ret = regulator_bulk_enable(cfg->num_vregs, qmp->vregs);
+@@ -5730,17 +5731,29 @@ static int qmp_pcie_init(struct phy *phy)
+ 	}
+ 
+ 	if (!qmp->skip_init) {
+-		ret = reset_control_bulk_deassert(cfg->num_resets, qmp->resets);
+-		if (ret) {
+-			dev_err(qmp->dev, "reset deassert failed\n");
+-			goto err_assert_reset;
+-		}
+-	}
+ 
+ 	ret = clk_bulk_prepare_enable(ARRAY_SIZE(qmp_pciephy_clk_l), qmp->clks);
+ 	if (ret)
+ 		goto err_assert_reset;
+ 
++	ret = reset_control_bulk_deassert(cfg->num_resets, qmp->resets);
++	if (ret) {
++	  dev_err(qmp->dev, "reset deassert failed\n");
++	  clk_bulk_disable_unprepare(ARRAY_SIZE(qmp_pciephy_clk_l),qmp->clks);
++	  goto err_assert_reset;
++	}
++	usleep_range(1000,1200);
++	dev_info(qmp->dev,"SC8180XP test: PHY reset released after clocks\n");
++	}
++
++
++	if (!strcmp(dev_name(qmp->dev),"1c06000.phy")){
++		int i;
++		for (i = 0; i < ARRAY_SIZE(qmp_pciephy_clk_l); i++){
++			if (qmp->clks[i].clk)
++				dev_info(qmp->dev,"clock %s enabled %d rate %lu\n",qmp->clks[i].id,__clk_is_enabled(qmp->clks[i].clk), clk_get_rate(qmp->clks[i].clk));
++		}
++	}
+ 	return 0;
+ 
+ err_assert_reset:
+@@ -5769,6 +5782,60 @@ static int qmp_pcie_exit(struct phy *phy)
+ 	return 0;
+ }
+ 
++static void qmp_pcie_verify_tbl(struct qmp_pcie *qmp, const char *blk,
++				void __iomem *base,
++				const struct qmp_phy_init_tbl *tbl, int num)
++{
++	int i, bad = 0;
++
++	if (!tbl || !base)
++		return;
++	for (i = 0; i < num; i++) {
++		u32 v = readl(base + tbl[i].offset);
++
++		if (v != tbl[i].val) {
++			bad++;
++			dev_info(qmp->dev, "VERIFY %s %s off=%#x want=%#x got=%#x\n",
++				 blk, tbl[i].name, tbl[i].offset, tbl[i].val, v);
++		}
++	}
++	dev_info(qmp->dev, "VERIFY %s: %d/%d entries mismatch\n", blk, bad, num);
++}
++
++static void qmp_pcie_verify_all(struct qmp_pcie *qmp)
++{
++	const struct qmp_phy_cfg_tbls *t = &qmp->cfg->tbls;
++
++	qmp_pcie_verify_tbl(qmp, "serdes",   qmp->serdes,   t->serdes,   t->serdes_num);
++	qmp_pcie_verify_tbl(qmp, "tx",       qmp->tx,       t->tx,       t->tx_num);
++	qmp_pcie_verify_tbl(qmp, "rx",       qmp->rx,       t->rx,       t->rx_num);
++	qmp_pcie_verify_tbl(qmp, "pcs",      qmp->pcs,      t->pcs,      t->pcs_num);
++	qmp_pcie_verify_tbl(qmp, "pcs_misc", qmp->pcs_misc, t->pcs_misc, t->pcs_misc_num);
++}
++
++
++static void qmp_pcie_gcc_dump(struct qmp_pcie *qmp, const char *tag)
++{
++	static const struct { u32 off; const char *n; } r[] = {
++		{ 0x6f000, "GCC_PCIE_PHY_BCR (common, not in any upstream DT)" },
++		{ 0x6c01c, "GCC_PCIE_0_PHY_BCR" },
++		{ 0x6b000, "GCC_PCIE_0_BCR" },
++		{ 0x6b004, "PCIE_0_GDSCR" },
++		{ 0x6f004, "GCC_PCIE_PHY_AUX_CBCR" },
++		{ 0x6f02c, "GCC_PCIE0_PHY_REFGEN_CBCR" },
++		{ 0x8c00c, "GCC_PCIE_0_CLKREF_CBCR" },
++	};
++	void __iomem *g = ioremap(0x100000, 0x100000);
++	int i;
++
++	if (!g)
++		return;
++	for (i = 0; i < ARRAY_SIZE(r); i++)
++		dev_info(qmp->dev, "%s: GCC[%#x] %s = %08x\n", tag, r[i].off, r[i].n,
++			 readl(g + r[i].off));
++	iounmap(g);
++}
++
+ static int qmp_pcie_power_on(struct phy *phy)
+ {
+ 	struct qmp_pcie *qmp = phy_get_drvdata(phy);
+@@ -5779,7 +5846,8 @@ static int qmp_pcie_power_on(struct phy *phy)
+ 	unsigned int mask, val;
+ 	bool skip_reset;
+ 	int ret;
+-
++	
++	
+ 	skip_reset = qmp->skip_init && !qphy_checkbits(pcs, cfg->regs[QPHY_PCS_STATUS],
+ 							    cfg->phy_status);
+ 	/*
+@@ -5796,14 +5864,14 @@ static int qmp_pcie_power_on(struct phy *phy)
+ 		mode_tbls = cfg->tbls_rc;
+ 	else
+ 		mode_tbls = cfg->tbls_ep;
+-
+ 	qmp_pcie_init_registers(qmp, &cfg->tbls);
+ 	qmp_pcie_init_registers(qmp, mode_tbls);
+-
++	qmp_pcie_verify_all(qmp);
+ skip_tbls_init:
+ 	ret = clk_bulk_prepare_enable(qmp->num_pipe_clks, qmp->pipe_clks);
+ 	if (ret)
+ 		return ret;
++	
+ 
+ 	if (!skip_reset) {
+ 		ret = reset_control_deassert(qmp->nocsr_reset);
+@@ -5815,8 +5883,6 @@ static int qmp_pcie_power_on(struct phy *phy)
+ 
+ 	if (qmp->skip_init)
+ 		goto skip_serdes_start;
+-
+-	/* Pull PHY out of reset state */
+ 	qphy_clrbits(pcs, cfg->regs[QPHY_SW_RESET], SW_RESET);
+ 
+ 	/* start SerDes and Phy-Coding-Sublayer */
+@@ -5831,7 +5897,7 @@ static int qmp_pcie_power_on(struct phy *phy)
+ 	ret = readl_poll_timeout(status, val, !(val & mask), 200,
+ 				 PHY_INIT_COMPLETE_TIMEOUT);
+ 	if (ret) {
+-		dev_err(qmp->dev, "phy initialization timed-out\n");
++		dev_err(qmp->dev, "phy initialization timed-out: PCS_STATUS=0x%08x mask=0x%08x SW_RESET=0x%08x START_CTRL=0x%08x\n",val,mask,readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]));
+ 		goto err_disable_pipe_clk;
+ 	}
+ 
+diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
+index 1c86e7e..385d5e2 100644
+--- a/arch/arm64/boot/dts/qcom/Makefile
++++ b/arch/arm64/boot/dts/qcom/Makefile
+@@ -289,6 +289,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-idp2.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-crd-r3.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-lenovo-flex-5g.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-primus.dtb
++dtb-$(CONFIG_ARCH_QCOM) += sc8180x-dell-inspiron-3420.dtb
+ sc8280xp-crd-el2-dtbs	:= sc8280xp-crd.dtb sc8280xp-el2.dtbo
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8280xp-crd.dtb sc8280xp-crd-el2.dtb
+ sc8280xp-huawei-gaokun3-el2-dtbs	:= sc8280xp-huawei-gaokun3.dtb sc8280xp-el2.dtbo
 diff --git a/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
 new file mode 100644
-index 0000000..b043f4c
+index 0000000..dc92032
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
-@@ -0,0 +1,523 @@
+@@ -0,0 +1,517 @@
 +// SPDX-License-Identifier: BSD-3-Clause
++/*
++ * SC8180X laptop ("QCOMM SDM8180" DSDT) - memory map, lid switch (LID0),
++ * touchpad (TCPD) and keyboard (ECSH).
++ *
++ * Sources:
++ *   - GRUB `lsmmap` photo (UEFI memory map)  -> memory@80000000, reserved-memory
++ *   - dsdt.dsl                               -> LID0 / TCPD / ECSH / I2C8
++ *
++ * Built on top of mainline arch/arm64/boot/dts/qcom/sc8180x.dtsi.
++ */
 +
 +/dts-v1/;
 +
@@ -45,6 +234,12 @@ index 0000000..b043f4c
 +#include <dt-bindings/interrupt-controller/irq.h>
 +
 +#include "sc8180x.dtsi"
++
++/*
++ * EFI map: RAM at 0x80000000-0x27ba00000.  Mainline reservations at
++ * 0x9d400000 and 0x9f800000 are KEPT even though UEFI reports them as
++ * available: they are likely firmware/secure memory (safer to leave reserved).
++ */
 +
 +/ {
 +	model = "Dell Inspiron 3420 - SC8180xp";
@@ -69,6 +264,11 @@ index 0000000..b043f4c
 +			no-map;
 +		};
 +
++		/*
++		 * EFI "reserved RAM" 0x8b700000 len 0xf400000 (to 0x9ab00000).
++		 * UEFI only shows the whole span; the split into remoteproc
++		 * regions is borrowed from sc8180x-lenovo-flex-5g.dts.
++		 */
 +		wlan_mem: wlan-region@8bc00000 {
 +			reg = <0x0 0x8bc00000 0x0 0x180000>;
 +			no-map;
@@ -89,6 +289,15 @@ index 0000000..b043f4c
 +			no-map;
 +		};
 +
++		/*
++		 * UEFI runtime/ACPI span, contiguous in the map:
++		 *   0xffa76000 +0x190000  firmware code
++		 *   0xffc06000 +0x2bc000  reserved
++		 *   0xffec2000 +0x10000   reserved
++		 *   0xffed2000 +0x50000   ACPI NVS
++		 *   0xfff22000 +0xdc000   ACPI reclaimable
++		 * Only needed for a DT-only boot; harmless under EFI.
++		 */
 +		reserved@ffa76000 {
 +			reg = <0x0 0xffa76000 0x0 0x588000>;
 +			no-map;
@@ -104,6 +313,7 @@ index 0000000..b043f4c
 +	};
 +
 +	
++	/* \_SB.LID0 (PNP0C0D); state read from GpioIo pin 0x79 (\_SB.GIO0.LIDR) */
 +	gpio-keys {
 +		compatible = "gpio-keys";
 +
@@ -112,10 +322,10 @@ index 0000000..b043f4c
 +
 +		lid-switch {
 +			label = "lid";
-+			gpios = <&tlmm 121 GPIO_ACTIVE_LOW>;
++			gpios = <&tlmm 121 GPIO_ACTIVE_LOW>;	/* high = open */
 +			linux,input-type = <EV_SW>;
 +			linux,code = <SW_LID>;
-+			wakeup-source;	
++			wakeup-source;				/* AEI event is wake-capable */
 +			wakeup-event-action = <EV_ACT_DEASSERTED>;
 +		};
 +	};
@@ -133,32 +343,24 @@ index 0000000..b043f4c
 +};
 +
 +
-+&spmi_bus {
-+	  pmic@0 {
-+	  	 compatible="qcom,spmi-pmic";
-+		 reg=<0x0 SPMI_USID>;
-+		 
-+		 };
-+};
-+
 +&qupv3_id_0 {
 +	status = "okay";
 +};
 +
-
++/* ACPI \_SB.I2C8 (UID 8): MMIO 0x89c000, GSIV 640 (SPI 608) == mainline i2c7 */
 +&i2c7 {
-+	clock-frequency = <400000>;
++	clock-frequency = <400000>;	/* I2cSerialBus ConnectionSpeed 0x61a80 */
 +
 +	pinctrl-0 = <&i2c7_active>;
 +	pinctrl-names = "default";
 +
 +	status = "okay";
 +
-
++	/* \_SB.I2C8.ECSH: HID "ENES6243", I2C addr 0x05 */
 +	keyboard@5 {
 +		compatible = "hid-over-i2c";
 +		reg = <0x5>;
-+		hid-descr-addr = <0x20>;
++		hid-descr-addr = <0x20>;		/* _DSM function 1 */
 +
 +		/* GpioInt pin 0xb1, level, active-low, wake-capable */
 +		interrupts-extended = <&tlmm 177 IRQ_TYPE_LEVEL_LOW>;
@@ -168,11 +370,17 @@ index 0000000..b043f4c
 +		pinctrl-names = "default";
 +	};
 +
-
++	/* \_SB.I2C8.TCPD: HID 27C60002 (TPVF=1) or 06CB0002 (TPVF=2), addr 0x2c */
 +	touchpad@2c {
 +		compatible = "hid-over-i2c";
 +		reg = <0x2c>;
-+		hid-descr-addr = <0x20>;
++		hid-descr-addr = <0x20>;		/* _DSM function 1 */
++
++		/*
++		 * FIXME: DSDT GpioInt pin is 0x280 (640), outside the TLMM range
++		 * (0-189).  GPIO 24 is the upstream Lenovo Flex 5G value, not
++		 * taken from this DSDT - verify on hardware.
++		 */
 +		interrupts-extended = <&tlmm 24 IRQ_TYPE_LEVEL_LOW>;
 +		wakeup-source;
 +
@@ -187,9 +395,10 @@ index 0000000..b043f4c
 +	hall_int_active_state: hall-int-active-state {
 +		pins = "gpio121";
 +		function = "gpio";
-+		bias-disable;
++		bias-disable;			/* GpioIo PullNone */
 +	};
 +
++	/* pinmux is not in the DSDT (firmware sets it); values from upstream */
 +	i2c7_active: i2c7-active-state {
 +		pins = "gpio98", "gpio99";
 +		function = "qup7";
@@ -200,14 +409,14 @@ index 0000000..b043f4c
 +	kb_int_default: kb-int-default-state {
 +		pins = "gpio177";
 +		function = "gpio";
-+		bias-disable;
++		bias-disable;			/* PullDefault in DSDT */
 +		drive-strength = <2>;
 +	};
 +
 +	tp_int_default: tp-int-default-state {
 +		pins = "gpio24";
 +		function = "gpio";
-+		bias-pull-up;
++		bias-pull-up;			/* GpioInt PullUp */
 +		drive-strength = <2>;
 +	};
 +	pcie0_default_state: pcie0-default-state {
@@ -233,6 +442,10 @@ index 0000000..b043f4c
 +	};
 +};
 +
++/*
++ * RPMh regulators needed by the USB PHYs.  Not in the DSDT (Windows manages
++ * them through PEP0); values taken from sc8180x-lenovo-flex-5g.dts.
++ */
 +&apps_rsc {
 +	regulators-0 {
 +		compatible = "qcom,pmc8180-rpmh-regulators";
@@ -310,6 +523,12 @@ index 0000000..b043f4c
 +	};
 +};
 +
++/*
++ * USB.  DSDT: URS0 @0x0a600000 = usb_prim, URS1 @0x0a800000 = usb_sec,
++ * USB2 @0x0a400000 = usb_mp (2 ports).  Host mode only; the Type-C
++ * (pmic_glink/UCSI) orientation switching is omitted, so SuperSpeed works
++ * in one cable orientation only - high-speed works in both.
++ */
 +&usb_prim_hsphy {
 +	vdda-pll-supply = <&vreg_l5e_0p88>;
 +	vdda18-supply = <&vreg_l12a_1p8>;
@@ -417,10 +636,12 @@ index 0000000..b043f4c
 +	sync-state-hold {
 +		compatible = "linux,sync-state-hold";
 +
++		/* rpmhpd provider: MMCX (display), MX, CX */
 +		power-domains = <&rpmhpd SC8180X_MMCX>,
 +				<&rpmhpd SC8180X_MX>,
 +				<&rpmhpd SC8180X_CX>;
 +
++		/* one path per interconnect provider */
 +		interconnects =
 +			<&mmss_noc MASTER_MDP_PORT0 QCOM_ICC_TAG_ALWAYS
 +			 &mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ALWAYS>,
@@ -489,9 +710,11 @@ index 0000000..b043f4c
 +   pmic@0 {
 +   	  compatible = "qcom,pm8150", "qcom,spmi-pmic";
 +	  reg = <0x0 SPMI_USID>;
++	  #address-cells = <1>;
++	  #size-cells = <0>;
 +	  rtc@6000 {
 +	  	   compatible = "qcom,pm8941-rtc";
-+		   reg=<0x6000>;
++		   reg=<0x6000>,<0x6100>;
 +		   reg-names="rtc","alarm";
 +		   interrupts=<0x0 0x61 0x1 IRQ_TYPE_NONE>;
 +		   qcom,uefi-rtc-info;
@@ -505,15 +728,3 @@ index 0000000..b043f4c
 +	       "qcom,pmic-glink";
 +	       };
 +  };
-diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
-index 1c86e7e..385d5e2 100644
---- a/arch/arm64/boot/dts/qcom/Makefile
-+++ b/arch/arm64/boot/dts/qcom/Makefile
-@@ -289,6 +289,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-idp2.dtb
- dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-crd-r3.dtb
- dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-lenovo-flex-5g.dtb
- dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-primus.dtb
-+dtb-$(CONFIG_ARCH_QCOM) += sc8180x-dell-inspiron-3420.dtb
- sc8280xp-crd-el2-dtbs	:= sc8280xp-crd.dtb sc8280xp-el2.dtbo
- dtb-$(CONFIG_ARCH_QCOM)	+= sc8280xp-crd.dtb sc8280xp-crd-el2.dtb
- sc8280xp-huawei-gaokun3-el2-dtbs	:= sc8280xp-huawei-gaokun3.dtb sc8280xp-el2.dtbo
