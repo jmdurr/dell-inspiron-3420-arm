@@ -21,6 +21,8 @@ then
 - Add kernel params to boot as defined in grub.cfg
 - Obtain wifi and adsp firmware from windows install
 - add adsp firmware (qcadsp8180.mbn) to initramfs /usr/lib/firmware, otherwise echo start > /sys/class/remoteproc/remoteproc(0|1)/state to start power monitoring after every boot
+- wifi firmware
+- sudo install -m 0644 bdwlan.e11
 
 
 
