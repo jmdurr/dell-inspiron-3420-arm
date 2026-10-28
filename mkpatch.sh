@@ -3,7 +3,7 @@
 kernsrc="$1"
 kernconf="$2"
 PWD=`pwd`
-files="drivers/firmware/qcom/qcom_scm.c drivers/phy/qualcomm/phy-qcom-qmp-pcie.c"
+files="drivers/firmware/qcom/qcom_scm.c drivers/phy/qualcomm/phy-qcom-qmp-pcie.c arch/arm64/boot/dts/qcom/Makefile"
 newfiles="arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts"
 echo > kernel.patch
 for file in $files

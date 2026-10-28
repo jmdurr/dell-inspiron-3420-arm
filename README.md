@@ -22,8 +22,9 @@ then
 - Obtain wifi and adsp firmware from windows install
 - add adsp firmware (qcadsp8180.mbn) to initramfs /usr/lib/firmware, otherwise echo start > /sys/class/remoteproc/remoteproc(0|1)/state to start power monitoring after every boot
 - wifi firmware
-- sudo install -m 0644 bdwlan.e11
-
+```
+sudo install -m 0644 bdwlan.e11
+```
 
 
 ### Status:
@@ -51,6 +52,17 @@ then
  - remove debug logging from kernel modules
  - cleanup dts
  - write comprehensive setup guide
+
+### NOTES
+Before building kernel on fedora
+```
+sudo setenforce 0 
+```
+use the following build command in fedpkg
+```
+HMAC_USE_CLEARTEXT=1 fedpkg --release rawhide local --define "with_debug 0" --define "with_debuginfo 0" 
+```
+
 
 
 ### ERRORS

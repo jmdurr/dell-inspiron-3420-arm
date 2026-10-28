@@ -33,16 +33,6 @@ index 0000000..b043f4c
 +++ b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
 @@ -0,0 +1,523 @@
 +// SPDX-License-Identifier: BSD-3-Clause
-+/*
-+ * SC8180X laptop ("QCOMM SDM8180" DSDT) - memory map, lid switch (LID0),
-+ * touchpad (TCPD) and keyboard (ECSH).
-+ *
-+ * Sources:
-+ *   - GRUB `lsmmap` photo (UEFI memory map)  -> memory@80000000, reserved-memory
-+ *   - dsdt.dsl                               -> LID0 / TCPD / ECSH / I2C8
-+ *
-+ * Built on top of mainline arch/arm64/boot/dts/qcom/sc8180x.dtsi.
-+ */
 +
 +/dts-v1/;
 +
@@ -55,12 +45,6 @@ index 0000000..b043f4c
 +#include <dt-bindings/interrupt-controller/irq.h>
 +
 +#include "sc8180x.dtsi"
-+
-+/*
-+ * EFI map: RAM at 0x80000000-0x27ba00000.  Mainline reservations at
-+ * 0x9d400000 and 0x9f800000 are KEPT even though UEFI reports them as
-+ * available: they are likely firmware/secure memory (safer to leave reserved).
-+ */
 +
 +/ {
 +	model = "Dell Inspiron 3420 - SC8180xp";
@@ -85,11 +69,6 @@ index 0000000..b043f4c
 +			no-map;
 +		};
 +
-+		/*
-+		 * EFI "reserved RAM" 0x8b700000 len 0xf400000 (to 0x9ab00000).
-+		 * UEFI only shows the whole span; the split into remoteproc
-+		 * regions is borrowed from sc8180x-lenovo-flex-5g.dts.
-+		 */
 +		wlan_mem: wlan-region@8bc00000 {
 +			reg = <0x0 0x8bc00000 0x0 0x180000>;
 +			no-map;
@@ -110,15 +89,6 @@ index 0000000..b043f4c
 +			no-map;
 +		};
 +
-+		/*
-+		 * UEFI runtime/ACPI span, contiguous in the map:
-+		 *   0xffa76000 +0x190000  firmware code
-+		 *   0xffc06000 +0x2bc000  reserved
-+		 *   0xffec2000 +0x10000   reserved
-+		 *   0xffed2000 +0x50000   ACPI NVS
-+		 *   0xfff22000 +0xdc000   ACPI reclaimable
-+		 * Only needed for a DT-only boot; harmless under EFI.
-+		 */
 +		reserved@ffa76000 {
 +			reg = <0x0 0xffa76000 0x0 0x588000>;
 +			no-map;
@@ -134,7 +104,6 @@ index 0000000..b043f4c
 +	};
 +
 +	
-+	/* \_SB.LID0 (PNP0C0D); state read from GpioIo pin 0x79 (\_SB.GIO0.LIDR) */
 +	gpio-keys {
 +		compatible = "gpio-keys";
 +
@@ -143,10 +112,10 @@ index 0000000..b043f4c
 +
 +		lid-switch {
 +			label = "lid";
-+			gpios = <&tlmm 121 GPIO_ACTIVE_LOW>;	/* high = open */
++			gpios = <&tlmm 121 GPIO_ACTIVE_LOW>;
 +			linux,input-type = <EV_SW>;
 +			linux,code = <SW_LID>;
-+			wakeup-source;				/* AEI event is wake-capable */
++			wakeup-source;	
 +			wakeup-event-action = <EV_ACT_DEASSERTED>;
 +		};
 +	};
@@ -176,20 +145,20 @@ index 0000000..b043f4c
 +	status = "okay";
 +};
 +
-+/* ACPI \_SB.I2C8 (UID 8): MMIO 0x89c000, GSIV 640 (SPI 608) == mainline i2c7 */
+
 +&i2c7 {
-+	clock-frequency = <400000>;	/* I2cSerialBus ConnectionSpeed 0x61a80 */
++	clock-frequency = <400000>;
 +
 +	pinctrl-0 = <&i2c7_active>;
 +	pinctrl-names = "default";
 +
 +	status = "okay";
 +
-+	/* \_SB.I2C8.ECSH: HID "ENES6243", I2C addr 0x05 */
+
 +	keyboard@5 {
 +		compatible = "hid-over-i2c";
 +		reg = <0x5>;
-+		hid-descr-addr = <0x20>;		/* _DSM function 1 */
++		hid-descr-addr = <0x20>;
 +
 +		/* GpioInt pin 0xb1, level, active-low, wake-capable */
 +		interrupts-extended = <&tlmm 177 IRQ_TYPE_LEVEL_LOW>;
@@ -199,17 +168,11 @@ index 0000000..b043f4c
 +		pinctrl-names = "default";
 +	};
 +
-+	/* \_SB.I2C8.TCPD: HID 27C60002 (TPVF=1) or 06CB0002 (TPVF=2), addr 0x2c */
+
 +	touchpad@2c {
 +		compatible = "hid-over-i2c";
 +		reg = <0x2c>;
-+		hid-descr-addr = <0x20>;		/* _DSM function 1 */
-+
-+		/*
-+		 * FIXME: DSDT GpioInt pin is 0x280 (640), outside the TLMM range
-+		 * (0-189).  GPIO 24 is the upstream Lenovo Flex 5G value, not
-+		 * taken from this DSDT - verify on hardware.
-+		 */
++		hid-descr-addr = <0x20>;
 +		interrupts-extended = <&tlmm 24 IRQ_TYPE_LEVEL_LOW>;
 +		wakeup-source;
 +
@@ -224,10 +187,9 @@ index 0000000..b043f4c
 +	hall_int_active_state: hall-int-active-state {
 +		pins = "gpio121";
 +		function = "gpio";
-+		bias-disable;			/* GpioIo PullNone */
++		bias-disable;
 +	};
 +
-+	/* pinmux is not in the DSDT (firmware sets it); values from upstream */
 +	i2c7_active: i2c7-active-state {
 +		pins = "gpio98", "gpio99";
 +		function = "qup7";
@@ -238,14 +200,14 @@ index 0000000..b043f4c
 +	kb_int_default: kb-int-default-state {
 +		pins = "gpio177";
 +		function = "gpio";
-+		bias-disable;			/* PullDefault in DSDT */
++		bias-disable;
 +		drive-strength = <2>;
 +	};
 +
 +	tp_int_default: tp-int-default-state {
 +		pins = "gpio24";
 +		function = "gpio";
-+		bias-pull-up;			/* GpioInt PullUp */
++		bias-pull-up;
 +		drive-strength = <2>;
 +	};
 +	pcie0_default_state: pcie0-default-state {
@@ -271,10 +233,6 @@ index 0000000..b043f4c
 +	};
 +};
 +
-+/*
-+ * RPMh regulators needed by the USB PHYs.  Not in the DSDT (Windows manages
-+ * them through PEP0); values taken from sc8180x-lenovo-flex-5g.dts.
-+ */
 +&apps_rsc {
 +	regulators-0 {
 +		compatible = "qcom,pmc8180-rpmh-regulators";
@@ -352,12 +310,6 @@ index 0000000..b043f4c
 +	};
 +};
 +
-+/*
-+ * USB.  DSDT: URS0 @0x0a600000 = usb_prim, URS1 @0x0a800000 = usb_sec,
-+ * USB2 @0x0a400000 = usb_mp (2 ports).  Host mode only; the Type-C
-+ * (pmic_glink/UCSI) orientation switching is omitted, so SuperSpeed works
-+ * in one cable orientation only - high-speed works in both.
-+ */
 +&usb_prim_hsphy {
 +	vdda-pll-supply = <&vreg_l5e_0p88>;
 +	vdda18-supply = <&vreg_l12a_1p8>;
@@ -465,12 +417,10 @@ index 0000000..b043f4c
 +	sync-state-hold {
 +		compatible = "linux,sync-state-hold";
 +
-+		/* rpmhpd provider: MMCX (display), MX, CX */
 +		power-domains = <&rpmhpd SC8180X_MMCX>,
 +				<&rpmhpd SC8180X_MX>,
 +				<&rpmhpd SC8180X_CX>;
 +
-+		/* one path per interconnect provider */
 +		interconnects =
 +			<&mmss_noc MASTER_MDP_PORT0 QCOM_ICC_TAG_ALWAYS
 +			 &mc_virt SLAVE_EBI_CH0 QCOM_ICC_TAG_ALWAYS>,
@@ -555,3 +505,15 @@ index 0000000..b043f4c
 +	       "qcom,pmic-glink";
 +	       };
 +  };
+diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
+index 1c86e7e..385d5e2 100644
+--- a/arch/arm64/boot/dts/qcom/Makefile
++++ b/arch/arm64/boot/dts/qcom/Makefile
+@@ -289,6 +289,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-idp2.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-crd-r3.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-lenovo-flex-5g.dtb
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-primus.dtb
++dtb-$(CONFIG_ARCH_QCOM) += sc8180x-dell-inspiron-3420.dtb
+ sc8280xp-crd-el2-dtbs	:= sc8280xp-crd.dtb sc8280xp-el2.dtbo
+ dtb-$(CONFIG_ARCH_QCOM)	+= sc8280xp-crd.dtb sc8280xp-crd-el2.dtb
+ sc8280xp-huawei-gaokun3-el2-dtbs	:= sc8280xp-huawei-gaokun3.dtb sc8280xp-el2.dtbo

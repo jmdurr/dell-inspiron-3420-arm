@@ -5782,58 +5782,6 @@ static int qmp_pcie_exit(struct phy *phy)
 	return 0;
 }
 
-
-/*
- * Diagnostic only - drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
- * Field names (serdes, pcs, clks/num_clks) match current mainline; adjust if
- * your tree differs.  Compile-test before use.
- *
- * Goal: capture PHY state BEFORE the poll (not after failed-power-on cleanup),
- * and find out whether the 10 ms timeout is simply too short.
- */
-
-static void qmp_pcie_diag(struct qmp_pcie *qmp, const char *tag)
-{
-	const struct qmp_phy_cfg *cfg = qmp->cfg;
-	static const u16 sd[] = { 0x10, 0x1c, 0x48, 0x50, 0x58, 0x94, 0xa4, 0xbc,
-				  0xc4, 0x10c, 0x154, 0x158, 0x16c, 0x1bc };
-	int i;
-
-	dev_info(qmp->dev, "%s: SW_RESET=%08x PD=%08x START=%08x STATUS1=%08x REV=%08x\n",
-		 tag,
-		 readl(qmp->pcs + cfg->regs[QPHY_SW_RESET]),
-		 readl(qmp->pcs + cfg->regs[QPHY_PCS_POWER_DOWN_CONTROL]),
-		 readl(qmp->pcs + cfg->regs[QPHY_START_CTRL]),
-		 readl(qmp->pcs + cfg->regs[QPHY_PCS_STATUS]),
-		 readl(qmp->pcs + 0x04));
-	for (i = 0; i < ARRAY_SIZE(sd); i++)
-		dev_info(qmp->dev, "%s: serdes[%#x]=%08x\n", tag, sd[i],
-			 readl(qmp->serdes + sd[i]));
-	for (i = 0; i < ARRAY_SIZE(qmp_pciephy_clk_l); i++)
-		dev_info(qmp->dev, "%s: clk %s en=%d rate=%lu\n", tag,
-			 qmp->clks[i].id, __clk_is_enabled(qmp->clks[i].clk),
-			 clk_get_rate(qmp->clks[i].clk));
-	for (i = 0; i < qmp->num_pipe_clks; i++)
-		dev_info(qmp->dev, "%s: pipe clk %s en=%d rate=%lu\n", tag,
-			 qmp->pipe_clks[i].id, __clk_is_enabled(qmp->pipe_clks[i].clk),
-			 clk_get_rate(qmp->pipe_clks[i].clk));
-}
-
-/* in qmp_pcie_power_on():
- *   1) just before "Pull PHY out of reset state":   qmp_pcie_diag(qmp, "pre-reset-release");
- *   2) right after the START_CTRL setbits + delay:   qmp_pcie_diag(qmp, "post-start");
- *   3) in the readl_poll_timeout failure branch,
- *      BEFORE clk_bulk_disable_unprepare():          qmp_pcie_diag(qmp, "timeout");
- *   4) TEMPORARY: change PHY_INIT_COMPLETE_TIMEOUT from 10000 to 1000000 (1 s)
- *      and log the elapsed time if it eventually succeeds.
- */
-
-/*
- * Diagnostic #2 - drivers/phy/qualcomm/phy-qcom-qmp-pcie.c (v7.3)
- * Find out WHICH register blocks accept writes.  Place above qmp_pcie_power_on().
- * Struct/field names checked against v7.3 (qmp_phy_init_tbl, qmp_pcie, qmp_phy_cfg).
- */
-
 static void qmp_pcie_verify_tbl(struct qmp_pcie *qmp, const char *blk,
 				void __iomem *base,
 				const struct qmp_phy_init_tbl *tbl, int num)
@@ -5865,22 +5813,6 @@ static void qmp_pcie_verify_all(struct qmp_pcie *qmp)
 	qmp_pcie_verify_tbl(qmp, "pcs_misc", qmp->pcs_misc, t->pcs_misc, t->pcs_misc_num);
 }
 
-/*
- * Call sites in qmp_pcie_power_on():
- *   A) right after qmp_pcie_init_registers(qmp, mode_tbls):   qmp_pcie_verify_all(qmp);
- *   B) PCS write probe, right before "Pull PHY out of reset state":
- *        u32 a, b;
- *        a = readl(qmp->pcs + 0xdc);               // REFGEN_REQ_CONFIG1, table value 0x0d
- *        writel(a ^ 0x1, qmp->pcs + 0xdc);
- *        b = readl(qmp->pcs + 0xdc);
- *        writel(a, qmp->pcs + 0xdc);
- *        dev_info(qmp->dev, "PCS probe: before=%#x after-xor-write=%#x\n", a, b);
- *      (Repeat with SW_RESET: writel(0, pcs+0x0) then readl.)
- *
- * In pcie-qcom.c, qcom_pcie_phy_power_on() beforehand (or inside the diag fn if
- * you can reach it), also log:  readl(pcie->parf + PARF_PHY_CTRL)  [0x40]
- * to confirm PHY_TEST_PWR_DOWN (bit 0) is clear when PHY power-on runs.
- */
 
 static void qmp_pcie_gcc_dump(struct qmp_pcie *qmp, const char *tag)
 {
@@ -5902,44 +5834,6 @@ static void qmp_pcie_gcc_dump(struct qmp_pcie *qmp, const char *tag)
 		dev_info(qmp->dev, "%s: GCC[%#x] %s = %08x\n", tag, r[i].off, r[i].n,
 			 readl(g + r[i].off));
 	iounmap(g);
-}
-
-
-static void qmp_pcie_sweep(struct qmp_pcie *qmp)
-{
-	u32 off;
- 
-	for (off = 0x600; off < 0x1000; off += 0x100) {
-		u32 a = readl(qmp->serdes + off + 0x10);   /* arbitrary reg per 256 B window */
- 
-		writel(a ^ 0x1, qmp->serdes + off + 0x10);
-		dev_info(qmp->dev, "SWEEP off=%#x: before=%#x after=%#x %s\n",
-			 off + 0x10, a, readl(qmp->serdes + off + 0x10),
-			 (readl(qmp->serdes + off + 0x10) == (a ^ 1)) ? "WRITABLE" : "ignored");
-		writel(a, qmp->serdes + off + 0x10);
-	}
-}
-
-static void qmp_pcie_pcs_probe(struct qmp_pcie *qmp, const char *tag)
-{
-	const struct qmp_phy_cfg *cfg = qmp->cfg;
-	void __iomem *p = qmp->pcs + 0xdc;               /* PCS REFGEN_REQ_CONFIG1 */
-	void __iomem *r = qmp->pcs + cfg->regs[QPHY_SW_RESET];
-	u32 a, b, ra, rb;
-
-	a = readl(p);
-	writel(a ^ 0x1, p);
-	b = readl(p);
-	writel(a, p);                                    /* restore */
-
-	ra = readl(r);
-	writel(ra ^ 0x1, r);
-	rb = readl(r);
-	writel(ra, r);                                   /* restore */
-
-	dev_info(qmp->dev, "PCS probe [%s]: 0xdc %#x -> %#x (%s), SW_RESET %#x -> %#x (%s)\n",
-		 tag, a, b, (b == (a ^ 1)) ? "WRITABLE" : "ignored",
-		 ra, rb, (rb == (ra ^ 1)) ? "WRITABLE" : "ignored");
 }
 
 static int qmp_pcie_power_on(struct phy *phy)
@@ -5970,20 +5864,8 @@ static int qmp_pcie_power_on(struct phy *phy)
 		mode_tbls = cfg->tbls_rc;
 	else
 		mode_tbls = cfg->tbls_ep;
-	dev_info(qmp->dev,
-		 "SC8180XP PRE tables PCS: 1a4=%08x 188=%08x 198=%08x 19c=%08x 1ec=%08x; MISC: bc=%08x e0=%08x 1c=%08x\n",
-		 readl(qmp->pcs + 0x1a4), readl(qmp->pcs + 0x188),
-		 readl(qmp->pcs + 0x198), readl(qmp->pcs + 0x19c),
-		 readl(qmp->pcs + 0x1ec), readl(qmp->pcs_misc + 0xbc),
-		 readl(qmp->pcs_misc + 0xe0), readl(qmp->pcs_misc + 0x1c));
 	qmp_pcie_init_registers(qmp, &cfg->tbls);
 	qmp_pcie_init_registers(qmp, mode_tbls);
-	dev_info(qmp->dev,
-		 "SC8180XP POST tables PCS: 1a4=%08x 188=%08x 198=%08x 19c=%08x 1ec=%08x; MISC: bc=%08x e0=%08x 1c=%08x\n",
-		 readl(qmp->pcs + 0x1a4), readl(qmp->pcs + 0x188),
-		 readl(qmp->pcs + 0x198), readl(qmp->pcs + 0x19c),
-		 readl(qmp->pcs + 0x1ec), readl(qmp->pcs_misc + 0xbc),
-		 readl(qmp->pcs_misc + 0xe0), readl(qmp->pcs_misc + 0x1c));
 	qmp_pcie_verify_all(qmp);
 skip_tbls_init:
 	ret = clk_bulk_prepare_enable(qmp->num_pipe_clks, qmp->pipe_clks);
@@ -6001,54 +5883,21 @@ skip_tbls_init:
 
 	if (qmp->skip_init)
 		goto skip_serdes_start;
-        dev_err(qmp->dev,"QMP PCS base=%p",pcs);
-	dev_err(qmp->dev,"QMP REG OFFSETS: SW_RESET=0x%x START_CTRL=0x%x PCS_STATUS=0x%x\n",cfg->regs[QPHY_SW_RESET],cfg->regs[QPHY_START_CTRL],cfg->regs[QPHY_PCS_STATUS]);
-	qmp_pcie_diag(qmp,"pre-reset-release");
-	u32 a,b;
-        a = readl(qmp->pcs + 0xdc);               // REFGEN_REQ_CONFIG1, table value 0x0d
-        writel(a ^ 0x1, qmp->pcs + 0xdc);
-        b = readl(qmp->pcs + 0xdc);
-	writel(a, qmp->pcs + 0xdc);
-	
-	/* Pull PHY out of reset state */
-	
-	
-	
-	dev_info(qmp->dev,"PCIe0 PCS map: pcs=%px reset_off=0x%x start_off=0x%x status_off=0x%x\n",pcs,cfg->regs[QPHY_SW_RESET],cfg->regs[QPHY_START_CTRL],cfg->regs[QPHY_PCS_STATUS]);
 	qphy_clrbits(pcs, cfg->regs[QPHY_SW_RESET], SW_RESET);
 
-	a = readl(qmp->pcs + 0x0);               // REFGEN_REQ_CONFIG1, table value 0x0d
-        writel(a ^ 0x1, qmp->pcs + 0x0);
-        b = readl(qmp->pcs + 0x0);
-	writel(a, qmp->pcs + 0x0);
-	
-	
-
-	dev_err(qmp->dev,"RESET READBACK: 0x%08x\n",readl(pcs + cfg->regs[QPHY_SW_RESET]));
-	dev_err(qmp->dev,"BEFORE_START SW_RESET=0x%08x START_CTRL=0x%08x PCS_STATUS=0x%08x\n",readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]),readl(pcs + cfg->regs[QPHY_PCS_STATUS]));
 	/* start SerDes and Phy-Coding-Sublayer */
 	qphy_setbits(pcs, cfg->regs[QPHY_START_CTRL], SERDES_START | PCS_START);
-	dev_err(qmp->dev,"AFTER_START SW_RESET=0x%08x START_CTRL=0x%08x PCS_STATUS=0x%08x\n",readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]),readl(pcs + cfg->regs[QPHY_PCS_STATUS]));
 
 	if (!cfg->skip_start_delay)
 		usleep_range(1000, 1200);
-	qmp_pcie_diag(qmp,"post-start");
-	dev_err(qmp->dev,"AFTER_DELAY SW_RESET=0x%08x START_CTRL=0x%08x PCS_STATUS=0x%08x\n",readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]),readl(pcs + cfg->regs[QPHY_PCS_STATUS]));
 
 skip_serdes_start:
 	status = pcs + cfg->regs[QPHY_PCS_STATUS];
 	mask = cfg->phy_status;
 	ret = readl_poll_timeout(status, val, !(val & mask), 200,
 				 PHY_INIT_COMPLETE_TIMEOUT);
-	dev_info(qmp->dev,"PHY RESULT: ret=%d status=%08x mask=%08x reset=%08x start=%08x power=%08x\n"
-		 ,ret,val,mask,readl(pcs + cfg->regs[QPHY_SW_RESET]),
-		 readl(pcs+cfg->regs[QPHY_START_CTRL])
-		 ,readl(pcs+cfg->regs[QPHY_PCS_POWER_DOWN_CONTROL])
-		 );
 	if (ret) {
-		qmp_pcie_diag(qmp,"timeout");
 		dev_err(qmp->dev, "phy initialization timed-out: PCS_STATUS=0x%08x mask=0x%08x SW_RESET=0x%08x START_CTRL=0x%08x\n",val,mask,readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]));
-
 		goto err_disable_pipe_clk;
 	}
 
