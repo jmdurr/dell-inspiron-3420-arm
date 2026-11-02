@@ -25,7 +25,10 @@ then
 ```
 sudo install -m 0644 bdwlan.e11
 ```
-
+- gpu firmware
+```
+sudo install -Dm644 /mnt/windows/Windows/System32/DriverStore/FileRepository/qcdx8180.inf_arm64_357b8a7f532b07c0/qcdxkmsuc8180.mbn /usr/lib/firmware/qcom/sc8180xp/dell/qcdxkmsuc8180.mbn
+```
 
 ### Status:
 - [x] keyboard

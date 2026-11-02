@@ -509,6 +509,28 @@ status="okay";
 	};
 };
 
+&adreno_smmu {
+    #global-interrupts = <1>;
+
+    interrupts = <GIC_SPI 674 IRQ_TYPE_LEVEL_HIGH>,
+                 <GIC_SPI 680 IRQ_TYPE_LEVEL_HIGH>,
+                 <GIC_SPI 681 IRQ_TYPE_LEVEL_HIGH>,
+                 <GIC_SPI 682 IRQ_TYPE_LEVEL_HIGH>,
+                 <GIC_SPI 683 IRQ_TYPE_LEVEL_HIGH>,
+                 <GIC_SPI 684 IRQ_TYPE_LEVEL_HIGH>,
+                 <GIC_SPI 685 IRQ_TYPE_LEVEL_HIGH>,
+                 <GIC_SPI 686 IRQ_TYPE_LEVEL_HIGH>,
+                 <GIC_SPI 687 IRQ_TYPE_LEVEL_HIGH>;
+};
+
+&gpu {
+	status = "okay";
+};
+
+&gpu_zap_shader {
+	firmware-name = "qcom/sc8180xp/dell/qcdxkmsuc8180.mbn";
+};
+
 / {
     pmic-glink {
     	       compatible="qcom,sc8180x-pmic-glink",
