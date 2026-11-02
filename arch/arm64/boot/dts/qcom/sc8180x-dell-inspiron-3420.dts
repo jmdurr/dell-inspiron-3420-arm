@@ -19,8 +19,32 @@
 #include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 #include <dt-bindings/spmi/spmi.h>
 #include <dt-bindings/interrupt-controller/irq.h>
+#include <dt-bindings/soc/qcom,apr.h>
 
 #include "sc8180x.dtsi"
+
+&remoteproc_adsp {
+    glink-edge {
+        apr {
+            compatible = "qcom,apr-v2";
+            qcom,glink-channels = "apr_audio_svc";
+            qcom,domain = <APR_DOMAIN_ADSP>;
+            qcom,intents = <512 20>;
+
+            #address-cells = <1>;
+            #size-cells = <0>;
+
+            service@3 {
+                compatible = "qcom,q6core";
+                reg = <APR_SVC_ADSP_CORE>;
+                qcom,protection-domain =
+                    "avs/audio",
+                    "msm/adsp/audio_pd";
+            };
+        };
+    };
+};
+
 
 /*
  * EFI map: RAM at 0x80000000-0x27ba00000.  Mainline reservations at
@@ -448,10 +472,17 @@ status="okay";
 };
 
 &mdss {
-  status="disabled";
+  status="okay";
+};
+&mdss_edp {
+	data-lanes = <0 1>;
+	status="okay";
+};
+&mdss_edp_out {
+	data-lanes=<0 1>;
 };
 &dispcc {
-  status="disabled";
+  status="okay";
 };
 &usb_mp_dwc3 {
 	     dr_mode = "host";
@@ -466,6 +497,8 @@ status="okay";
     assigned-clock-rates = <100000000>;
 
     status = "okay";
+    reset-names = "phy",
+	          "phy_nocsr";
 };
 
 &pcie0 {

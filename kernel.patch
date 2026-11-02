@@ -12,7 +12,7 @@ index 3eaa4c9..2f2f4d9 100644
  	{ .compatible = "dell,latitude-7455" },
  	{ .compatible = "dell,xps13-9345" },
 diff --git a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
-index da83358..eae3b7c 100644
+index da83358..fbf6d69 100644
 --- a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
 +++ b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
 @@ -43,7 +43,7 @@
@@ -51,7 +51,7 @@ index da83358..eae3b7c 100644
  	}
  
  	ret = regulator_bulk_enable(cfg->num_vregs, qmp->vregs);
-@@ -5730,17 +5731,29 @@ static int qmp_pcie_init(struct phy *phy)
+@@ -5730,17 +5731,19 @@ static int qmp_pcie_init(struct phy *phy)
  	}
  
  	if (!qmp->skip_init) {
@@ -73,82 +73,19 @@ index da83358..eae3b7c 100644
 +	  goto err_assert_reset;
 +	}
 +	usleep_range(1000,1200);
-+	dev_info(qmp->dev,"SC8180XP test: PHY reset released after clocks\n");
-+	}
-+
-+
-+	if (!strcmp(dev_name(qmp->dev),"1c06000.phy")){
-+		int i;
-+		for (i = 0; i < ARRAY_SIZE(qmp_pciephy_clk_l); i++){
-+			if (qmp->clks[i].clk)
-+				dev_info(qmp->dev,"clock %s enabled %d rate %lu\n",qmp->clks[i].id,__clk_is_enabled(qmp->clks[i].clk), clk_get_rate(qmp->clks[i].clk));
-+		}
 +	}
  	return 0;
  
  err_assert_reset:
-@@ -5769,6 +5782,60 @@ static int qmp_pcie_exit(struct phy *phy)
+@@ -5768,7 +5771,6 @@ static int qmp_pcie_exit(struct phy *phy)
+ 
  	return 0;
  }
- 
-+static void qmp_pcie_verify_tbl(struct qmp_pcie *qmp, const char *blk,
-+				void __iomem *base,
-+				const struct qmp_phy_init_tbl *tbl, int num)
-+{
-+	int i, bad = 0;
-+
-+	if (!tbl || !base)
-+		return;
-+	for (i = 0; i < num; i++) {
-+		u32 v = readl(base + tbl[i].offset);
-+
-+		if (v != tbl[i].val) {
-+			bad++;
-+			dev_info(qmp->dev, "VERIFY %s %s off=%#x want=%#x got=%#x\n",
-+				 blk, tbl[i].name, tbl[i].offset, tbl[i].val, v);
-+		}
-+	}
-+	dev_info(qmp->dev, "VERIFY %s: %d/%d entries mismatch\n", blk, bad, num);
-+}
-+
-+static void qmp_pcie_verify_all(struct qmp_pcie *qmp)
-+{
-+	const struct qmp_phy_cfg_tbls *t = &qmp->cfg->tbls;
-+
-+	qmp_pcie_verify_tbl(qmp, "serdes",   qmp->serdes,   t->serdes,   t->serdes_num);
-+	qmp_pcie_verify_tbl(qmp, "tx",       qmp->tx,       t->tx,       t->tx_num);
-+	qmp_pcie_verify_tbl(qmp, "rx",       qmp->rx,       t->rx,       t->rx_num);
-+	qmp_pcie_verify_tbl(qmp, "pcs",      qmp->pcs,      t->pcs,      t->pcs_num);
-+	qmp_pcie_verify_tbl(qmp, "pcs_misc", qmp->pcs_misc, t->pcs_misc, t->pcs_misc_num);
-+}
-+
-+
-+static void qmp_pcie_gcc_dump(struct qmp_pcie *qmp, const char *tag)
-+{
-+	static const struct { u32 off; const char *n; } r[] = {
-+		{ 0x6f000, "GCC_PCIE_PHY_BCR (common, not in any upstream DT)" },
-+		{ 0x6c01c, "GCC_PCIE_0_PHY_BCR" },
-+		{ 0x6b000, "GCC_PCIE_0_BCR" },
-+		{ 0x6b004, "PCIE_0_GDSCR" },
-+		{ 0x6f004, "GCC_PCIE_PHY_AUX_CBCR" },
-+		{ 0x6f02c, "GCC_PCIE0_PHY_REFGEN_CBCR" },
-+		{ 0x8c00c, "GCC_PCIE_0_CLKREF_CBCR" },
-+	};
-+	void __iomem *g = ioremap(0x100000, 0x100000);
-+	int i;
-+
-+	if (!g)
-+		return;
-+	for (i = 0; i < ARRAY_SIZE(r); i++)
-+		dev_info(qmp->dev, "%s: GCC[%#x] %s = %08x\n", tag, r[i].off, r[i].n,
-+			 readl(g + r[i].off));
-+	iounmap(g);
-+}
-+
+-
  static int qmp_pcie_power_on(struct phy *phy)
  {
  	struct qmp_pcie *qmp = phy_get_drvdata(phy);
-@@ -5779,7 +5846,8 @@ static int qmp_pcie_power_on(struct phy *phy)
+@@ -5779,7 +5781,8 @@ static int qmp_pcie_power_on(struct phy *phy)
  	unsigned int mask, val;
  	bool skip_reset;
  	int ret;
@@ -158,7 +95,7 @@ index da83358..eae3b7c 100644
  	skip_reset = qmp->skip_init && !qphy_checkbits(pcs, cfg->regs[QPHY_PCS_STATUS],
  							    cfg->phy_status);
  	/*
-@@ -5796,14 +5864,14 @@ static int qmp_pcie_power_on(struct phy *phy)
+@@ -5796,14 +5799,13 @@ static int qmp_pcie_power_on(struct phy *phy)
  		mode_tbls = cfg->tbls_rc;
  	else
  		mode_tbls = cfg->tbls_ep;
@@ -166,7 +103,6 @@ index da83358..eae3b7c 100644
  	qmp_pcie_init_registers(qmp, &cfg->tbls);
  	qmp_pcie_init_registers(qmp, mode_tbls);
 -
-+	qmp_pcie_verify_all(qmp);
  skip_tbls_init:
  	ret = clk_bulk_prepare_enable(qmp->num_pipe_clks, qmp->pipe_clks);
  	if (ret)
@@ -175,7 +111,7 @@ index da83358..eae3b7c 100644
  
  	if (!skip_reset) {
  		ret = reset_control_deassert(qmp->nocsr_reset);
-@@ -5815,8 +5883,6 @@ static int qmp_pcie_power_on(struct phy *phy)
+@@ -5815,8 +5817,6 @@ static int qmp_pcie_power_on(struct phy *phy)
  
  	if (qmp->skip_init)
  		goto skip_serdes_start;
@@ -184,7 +120,7 @@ index da83358..eae3b7c 100644
  	qphy_clrbits(pcs, cfg->regs[QPHY_SW_RESET], SW_RESET);
  
  	/* start SerDes and Phy-Coding-Sublayer */
-@@ -5831,7 +5897,7 @@ static int qmp_pcie_power_on(struct phy *phy)
+@@ -5831,7 +5831,7 @@ static int qmp_pcie_power_on(struct phy *phy)
  	ret = readl_poll_timeout(status, val, !(val & mask), 200,
  				 PHY_INIT_COMPLETE_TIMEOUT);
  	if (ret) {
@@ -207,10 +143,10 @@ index 1c86e7e..385d5e2 100644
  sc8280xp-huawei-gaokun3-el2-dtbs	:= sc8280xp-huawei-gaokun3.dtb sc8280xp-el2.dtbo
 diff --git a/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
 new file mode 100644
-index 0000000..dc92032
+index 0000000..57f0bb7
 --- /dev/null
 +++ b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
-@@ -0,0 +1,517 @@
+@@ -0,0 +1,572 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
 + * SC8180X laptop ("QCOMM SDM8180" DSDT) - memory map, lid switch (LID0),
@@ -232,8 +168,32 @@ index 0000000..dc92032
 +#include <dt-bindings/regulator/qcom,rpmh-regulator.h>
 +#include <dt-bindings/spmi/spmi.h>
 +#include <dt-bindings/interrupt-controller/irq.h>
++#include <dt-bindings/soc/qcom,apr.h>
 +
 +#include "sc8180x.dtsi"
++
++&remoteproc_adsp {
++    glink-edge {
++        apr {
++            compatible = "qcom,apr-v2";
++            qcom,glink-channels = "apr_audio_svc";
++            qcom,domain = <APR_DOMAIN_ADSP>;
++            qcom,intents = <512 20>;
++
++            #address-cells = <1>;
++            #size-cells = <0>;
++
++            service@3 {
++                compatible = "qcom,q6core";
++                reg = <APR_SVC_ADSP_CORE>;
++                qcom,protection-domain =
++                    "avs/audio",
++                    "msm/adsp/audio_pd";
++            };
++        };
++    };
++};
++
 +
 +/*
 + * EFI map: RAM at 0x80000000-0x27ba00000.  Mainline reservations at
@@ -661,10 +621,17 @@ index 0000000..dc92032
 +};
 +
 +&mdss {
-+  status="disabled";
++  status="okay";
++};
++&mdss_edp {
++	data-lanes = <0 1>;
++	status="okay";
++};
++&mdss_edp_out {
++	data-lanes=<0 1>;
 +};
 +&dispcc {
-+  status="disabled";
++  status="okay";
 +};
 +&usb_mp_dwc3 {
 +	     dr_mode = "host";
@@ -679,6 +646,8 @@ index 0000000..dc92032
 +    assigned-clock-rates = <100000000>;
 +
 +    status = "okay";
++    reset-names = "phy",
++	          "phy_nocsr";
 +};
 +
 +&pcie0 {
@@ -720,6 +689,28 @@ index 0000000..dc92032
 +		   qcom,uefi-rtc-info;
 +		   };
 +	};
++};
++
++&adreno_smmu {
++    #global-interrupts = <1>;
++
++    interrupts = <GIC_SPI 674 IRQ_TYPE_LEVEL_HIGH>,
++                 <GIC_SPI 680 IRQ_TYPE_LEVEL_HIGH>,
++                 <GIC_SPI 681 IRQ_TYPE_LEVEL_HIGH>,
++                 <GIC_SPI 682 IRQ_TYPE_LEVEL_HIGH>,
++                 <GIC_SPI 683 IRQ_TYPE_LEVEL_HIGH>,
++                 <GIC_SPI 684 IRQ_TYPE_LEVEL_HIGH>,
++                 <GIC_SPI 685 IRQ_TYPE_LEVEL_HIGH>,
++                 <GIC_SPI 686 IRQ_TYPE_LEVEL_HIGH>,
++                 <GIC_SPI 687 IRQ_TYPE_LEVEL_HIGH>;
++};
++
++&gpu {
++	status = "okay";
++};
++
++&gpu_zap_shader {
++	firmware-name = "qcom/sc8180xp/dell/qcdxkmsuc8180.mbn";
 +};
 +
 +/ {
