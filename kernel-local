@@ -1,3 +1,2 @@
 # Linux/arm64 7.3.0-0.rc7.261016g2f2f7eeef8b0.62.sc8180xp.fc46.aarch64debug Kernel Configuration
 CONFIG_SM_GPUCC_8150=m
-CONFIG_DMABUF_DEBUG=n

@@ -1,151 +1,20 @@
-
-diff --git a/drivers/firmware/qcom/qcom_scm.c b/drivers/firmware/qcom/qcom_scm.c
-index 3eaa4c9..2f2f4d9 100644
---- a/drivers/firmware/qcom/qcom_scm.c
-+++ b/drivers/firmware/qcom/qcom_scm.c
-@@ -2305,6 +2305,7 @@ static const struct of_device_id qcom_scm_qseecom_allowlist[] __maybe_unused = {
- 	{ .compatible = "asus,zenbook-a14-ux3407qa" },
- 	{ .compatible = "asus,zenbook-a14-ux3407ra" },
- 	{ .compatible = "asus,zenbook-a16-ux3607oa" },
-+	{ .compatible = "dell,inspiron-3420-sc8180xp" },
- 	{ .compatible = "dell,inspiron-14-plus-7441" },
- 	{ .compatible = "dell,latitude-7455" },
- 	{ .compatible = "dell,xps13-9345" },
-diff --git a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
-index da83358..fbf6d69 100644
---- a/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
-+++ b/drivers/phy/qualcomm/phy-qcom-qmp-pcie.c
-@@ -43,7 +43,7 @@
- #include "phy-qcom-qmp-pcs-pcie-v10.h"
- #include "phy-qcom-qmp-pcs-pcie-v10_60.h"
- 
--#define PHY_INIT_COMPLETE_TIMEOUT		10000
-+#define PHY_INIT_COMPLETE_TIMEOUT		1000000
- 
- /* set of registers with offsets different per-PHY */
- enum qphy_reg_layout {
-@@ -4078,7 +4078,7 @@ static inline void qphy_clrbits(void __iomem *base, u32 offset, u32 val)
- 
- /* list of clocks required by phy */
- static const char * const qmp_pciephy_clk_l[] = {
--	"aux", "cfg_ahb", "ref", "refgen", "rchng", "phy_aux",
-+	"aux", "cfg_ahb", "ref", "refgen", "rchng", "phy_aux", "rfclk",
- };
- 
- /* list of regulators */
-@@ -5692,13 +5692,14 @@ static int qmp_pcie_init(struct phy *phy)
- 	qmp->skip_init = qmp->nocsr_reset &&
- 		qphy_checkbits(pcs, cfg->regs[QPHY_START_CTRL], SERDES_START | PCS_START) &&
- 		qphy_checkbits(pcs, cfg->regs[QPHY_PCS_POWER_DOWN_CONTROL], cfg->pwrdn_ctrl);
--
-+	qmp->skip_init = true;
- 	skip_reset = qmp->skip_init && !qphy_checkbits(pcs, cfg->regs[QPHY_PCS_STATUS],
- 							    cfg->phy_status);
- 
- 	if (!qmp->skip_init && !cfg->tbls.serdes_num) {
--		dev_err(qmp->dev, "Init sequence not available\n");
--		return -ENODATA;
-+	  //dev_err(qmp->dev, "Init sequence not available\n");
-+	  //	return -ENODATA;
-+	  dev_info(qmp->dev,"SC8180X TEST: Skip PHy BCR assertion\n");
- 	}
- 
- 	ret = regulator_bulk_enable(cfg->num_vregs, qmp->vregs);
-@@ -5730,17 +5731,19 @@ static int qmp_pcie_init(struct phy *phy)
- 	}
- 
- 	if (!qmp->skip_init) {
--		ret = reset_control_bulk_deassert(cfg->num_resets, qmp->resets);
--		if (ret) {
--			dev_err(qmp->dev, "reset deassert failed\n");
--			goto err_assert_reset;
--		}
--	}
- 
- 	ret = clk_bulk_prepare_enable(ARRAY_SIZE(qmp_pciephy_clk_l), qmp->clks);
- 	if (ret)
- 		goto err_assert_reset;
- 
-+	ret = reset_control_bulk_deassert(cfg->num_resets, qmp->resets);
-+	if (ret) {
-+	  dev_err(qmp->dev, "reset deassert failed\n");
-+	  clk_bulk_disable_unprepare(ARRAY_SIZE(qmp_pciephy_clk_l),qmp->clks);
-+	  goto err_assert_reset;
-+	}
-+	usleep_range(1000,1200);
-+	}
- 	return 0;
- 
- err_assert_reset:
-@@ -5768,7 +5771,6 @@ static int qmp_pcie_exit(struct phy *phy)
- 
- 	return 0;
- }
--
- static int qmp_pcie_power_on(struct phy *phy)
- {
- 	struct qmp_pcie *qmp = phy_get_drvdata(phy);
-@@ -5779,7 +5781,8 @@ static int qmp_pcie_power_on(struct phy *phy)
- 	unsigned int mask, val;
- 	bool skip_reset;
- 	int ret;
--
-+	
-+	
- 	skip_reset = qmp->skip_init && !qphy_checkbits(pcs, cfg->regs[QPHY_PCS_STATUS],
- 							    cfg->phy_status);
- 	/*
-@@ -5796,14 +5799,13 @@ static int qmp_pcie_power_on(struct phy *phy)
- 		mode_tbls = cfg->tbls_rc;
- 	else
- 		mode_tbls = cfg->tbls_ep;
--
- 	qmp_pcie_init_registers(qmp, &cfg->tbls);
- 	qmp_pcie_init_registers(qmp, mode_tbls);
--
- skip_tbls_init:
- 	ret = clk_bulk_prepare_enable(qmp->num_pipe_clks, qmp->pipe_clks);
- 	if (ret)
- 		return ret;
-+	
- 
- 	if (!skip_reset) {
- 		ret = reset_control_deassert(qmp->nocsr_reset);
-@@ -5815,8 +5817,6 @@ static int qmp_pcie_power_on(struct phy *phy)
- 
- 	if (qmp->skip_init)
- 		goto skip_serdes_start;
--
--	/* Pull PHY out of reset state */
- 	qphy_clrbits(pcs, cfg->regs[QPHY_SW_RESET], SW_RESET);
- 
- 	/* start SerDes and Phy-Coding-Sublayer */
-@@ -5831,7 +5831,7 @@ static int qmp_pcie_power_on(struct phy *phy)
- 	ret = readl_poll_timeout(status, val, !(val & mask), 200,
- 				 PHY_INIT_COMPLETE_TIMEOUT);
- 	if (ret) {
--		dev_err(qmp->dev, "phy initialization timed-out\n");
-+		dev_err(qmp->dev, "phy initialization timed-out: PCS_STATUS=0x%08x mask=0x%08x SW_RESET=0x%08x START_CTRL=0x%08x\n",val,mask,readl(pcs + cfg->regs[QPHY_SW_RESET]),readl(pcs + cfg->regs[QPHY_START_CTRL]));
- 		goto err_disable_pipe_clk;
- 	}
- 
 diff --git a/arch/arm64/boot/dts/qcom/Makefile b/arch/arm64/boot/dts/qcom/Makefile
-index 1c86e7e..385d5e2 100644
+index 88230c4e00ea..a76b1d8c8545 100644
 --- a/arch/arm64/boot/dts/qcom/Makefile
 +++ b/arch/arm64/boot/dts/qcom/Makefile
-@@ -289,6 +289,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-idp2.dtb
+@@ -325,6 +325,7 @@ dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-idp2.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= sc7280-crd-r3.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-lenovo-flex-5g.dtb
  dtb-$(CONFIG_ARCH_QCOM)	+= sc8180x-primus.dtb
-+dtb-$(CONFIG_ARCH_QCOM) += sc8180x-dell-inspiron-3420.dtb
++dtb-$(CONFIG_ARCH_QCOM) += sc8180xp-dell-inspiron-3420.dtb
  sc8280xp-crd-el2-dtbs	:= sc8280xp-crd.dtb sc8280xp-el2.dtbo
  dtb-$(CONFIG_ARCH_QCOM)	+= sc8280xp-crd.dtb sc8280xp-crd-el2.dtb
  sc8280xp-huawei-gaokun3-el2-dtbs	:= sc8280xp-huawei-gaokun3.dtb sc8280xp-el2.dtbo
-diff --git a/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
+diff --git a/arch/arm64/boot/dts/qcom/sc8180xp-dell-inspiron-3420.dts b/arch/arm64/boot/dts/qcom/sc8180xp-dell-inspiron-3420.dts
 new file mode 100644
-index 0000000..57f0bb7
+index 000000000000..57f0bb7871c4
 --- /dev/null
-+++ b/arch/arm64/boot/dts/qcom/sc8180x-dell-inspiron-3420.dts
++++ b/arch/arm64/boot/dts/qcom/sc8180xp-dell-inspiron-3420.dts
 @@ -0,0 +1,572 @@
 +// SPDX-License-Identifier: BSD-3-Clause
 +/*
@@ -719,3 +588,15 @@ index 0000000..57f0bb7
 +	       "qcom,pmic-glink";
 +	       };
 +  };
+diff --git a/drivers/firmware/qcom/qcom_scm.c b/drivers/firmware/qcom/qcom_scm.c
+index 43e250faea75..81bf1f97de1e 100644
+--- a/drivers/firmware/qcom/qcom_scm.c
++++ b/drivers/firmware/qcom/qcom_scm.c
+@@ -2231,6 +2231,7 @@ static const struct of_device_id qcom_scm_qseecom_allowlist[] __maybe_unused = {
+ 	{ .compatible = "asus,zenbook-a14-ux3407qa" },
+ 	{ .compatible = "asus,zenbook-a14-ux3407ra" },
+ 	{ .compatible = "asus,zenbook-a16-ux3607oa" },
++	{ .compatible = "dell,inspiron-3420-sc8180xp" },
+ 	{ .compatible = "dell,inspiron-14-plus-7441" },
+ 	{ .compatible = "dell,latitude-7455" },
+ 	{ .compatible = "dell,xps13-9345" },
