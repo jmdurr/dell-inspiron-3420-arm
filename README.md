@@ -8,17 +8,12 @@ Tested with Fedora 46 rawhide kernel 7.3 live usb and internal SSD installation.
 
 ### Steps:
 - git apply kernel.patch to kernel source root
-
-or 
-
-- copy dts to <kernel src>/arch/arm64/boot/dts/qcom/
-- Patch kernel module to skip pcie phy initialization (currently build the modules or kernel with included C files)
-
-then
-
-- enable SM8150 Graphics Clock Driver - see kernel-local
+- enable SM8150 Graphics Clock Driver - see kernel-local for kernel config options
 - Build kernel and setup boot config
-- Add kernel params to boot as defined in grub.cfg
+- Add kernel params to boot kernel line
+```
+pd_ignore_unused clk_ignore_unused cpuidle.off=1 systemd.mask=smartd.service
+```
 - Obtain wifi and adsp firmware from windows install
 - add adsp firmware (qcadsp8180.mbn) to initramfs /usr/lib/firmware, otherwise echo start > /sys/class/remoteproc/remoteproc(0|1)/state to start power monitoring after every boot
 - wifi firmware
@@ -51,19 +46,15 @@ sudo install -Dm644 /mnt/windows/Windows/System32/DriverStore/FileRepository/qcd
 - [x] cpu freq scaling
 
 ### General TODO: 
- - create patch instead of full module sources
- - remove debug logging from kernel modules
- - cleanup dts
- - write comprehensive setup guide
+ [x] create patch instead of full module sources
+ [x] remove debug logging from kernel modules
+ [ ] cleanup dts
+ [ ] write comprehensive setup guide
 
 ### NOTES
-Before building kernel on fedora
+Before building kernel on fedora, work around some selinux issues, return them to normal post build and install
 ```
 sudo setenforce 0 
-```
-use the following build command in fedpkg
-```
-# workaround for build issue in 7.3
 sudo sysctl -w crypto.af_alg_restrict=0
 fedpkg --release rawhide local 
 ```
